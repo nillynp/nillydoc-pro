@@ -1,0 +1,17 @@
+{
+  "name": "NillyDoc Pro — PDF Studio",
+  "short_name": "NillyDoc Pro",
+  "description": "Ultra-light minimal PDF Editor, Comments, Signatures & Smart Multi-Image to PDF — created by Nilly graphics (Sotiris Christos) | https://nillygraphics.com/",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#16171A",
+  "theme_color": "#16171A",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

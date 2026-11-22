@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="el" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#16171A" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="NillyDoc Pro" />
+  <meta name="author" content="Nilly graphics (Sotiris Christos) — https://nillygraphics.com/" />
+  <meta name="description" content="NillyDoc Pro — Πανάλαφρος, minimal PDF Editor με σχόλια, υπογραφές, επεξεργασία και έξυπνη μετατροπή εικόνων σε PDF. created by Nilly graphics (Sotiris Christos)." />
+  <title>NillyDoc Pro — PDF Studio | Nilly graphics</title>
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <!-- TOP STUDIO BAR -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button id="btnToggleThumbs" class="icon-btn" title="Σελίδες (Thumbnails)" aria-label="Σελίδες">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="6" height="16" rx="1"/><rect x="12" y="4" width="9" height="16" rx="1"/></svg>
+        </button>
+        <div class="brand" id="btnHomeLogo" title="NillyDoc Pro — created by Nilly graphics (Sotiris Christos)">
+          <span class="brand-mark"></span>
+          <span class="brand-name">NillyDoc Pro</span>
+        </div>
+        <span id="docFileName" class="doc-filename" title=""></span>
+      </div>
+
+      <div class="topbar-center" id="navControls" hidden>
+        <div class="pill-group">
+          <button id="btnPrevPage" class="icon-btn sm" title="Προηγούμενη σελίδα">‹</button>
+          <span class="page-counter"><input id="inpPageNum" type="number" min="1" value="1" aria-label="Αριθμός σελίδας" /> / <span id="lblPageTotal">1</span></span>
+          <button id="btnNextPage" class="icon-btn sm" title="Επόμενη σελίδα">›</button>
+        </div>
+        <div class="pill-group">
+          <button id="btnZoomOut" class="icon-btn sm" title="Σμίκρυνση">−</button>
+          <span id="lblZoom" class="zoom-label">100%</span>
+          <button id="btnZoomIn" class="icon-btn sm" title="Μεγέθυνση">+</button>
+          <button id="btnZoomFit" class="text-btn sm" title="Προσαρμογή σε πλάτος">Fit</button>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button id="btnOpenPdf" class="text-btn" title="Άνοιγμα PDF (Ctrl+O)">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          <span class="hide-xs">Άνοιγμα</span>
+        </button>
+        <button id="btnImgsToPdf" class="text-btn" title="Πολλές εικόνες → 1 PDF με επιλογή μεγέθους">
+          <span class="hide-xs">Εικόνες → PDF</span>
+          <span class="show-xs">Img→PDF</span>
+        </button>
+        <button id="btnMergePdf" class="text-btn desktop-only" title="Προσθήκη & ένωση άλλου PDF" hidden>+ Ένωση</button>
+        <button id="btnSplitPdf" class="text-btn desktop-only" title="Εξαγωγή επιλεγμένων σελίδων" hidden>Split</button>
+        <button id="btnSearchToggle" class="icon-btn" title="Αναζήτηση κειμένου (Ctrl+F)" hidden>
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button id="btnToggleComments" class="icon-btn" title="Σχόλια εγγράφου" hidden>
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span id="badgeComments" class="count-badge" hidden>0</span>
+        </button>
+        <button id="btnSaveOpen" class="primary-btn" title="Αποθήκευση / Συμπίεση PDF (Ctrl+S)" hidden>Αποθήκευση</button>
+        <button id="btnThemeToggle" class="icon-btn" title="Εναλλαγή Dark / Light">◐</button>
+      </div>
+    </header>
+
+    <!-- SEARCH BAR (on demand Ctrl+F) -->
+    <div id="searchBar" class="search-bar" hidden>
+      <input id="inpSearch" type="text" placeholder="Αναζήτηση κειμένου στο PDF..." autocomplete="off" />
+      <span id="lblSearchCount" class="search-count"></span>
+      <button id="btnSearchPrev" class="icon-btn sm" title="Προηγούμενο">↑</button>
+      <button id="btnSearchNext" class="icon-btn sm" title="Επόμενο">↓</button>
+      <button id="btnSearchClose" class="icon-btn sm" title="Κλείσιμο">✕</button>
+    </div>
+
+    <!-- STUDIO TOOL STRIP (Desktop sub-bar / Mobile bottom dock!) -->
+    <nav id="toolStrip" class="tool-strip" hidden aria-label="Εργαλεία επεξεργασίας">
+      <div class="tool-group">
+        <button class="tool-btn active" data-tool="select" title="Επιλογή / Μετακίνηση (V)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1.5L9 21z"/></svg>
+          <span>Επιλογή</span>
+        </button>
+        <button class="tool-btn" data-tool="text" title="Προσθήκη Κειμένου — Ελληνικά & Αγγλικά (T)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+          <span>Κείμενο</span>
+        </button>
+        <button class="tool-btn" data-tool="whiteout" title="Whiteout / Κάλυψη παλιού κειμένου (W)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="6" width="18" height="12" rx="2" fill="currentColor" fill-opacity="0.22"/></svg>
+          <span>Whiteout</span>
+        </button>
+        <button class="tool-btn" data-tool="note" title="Σχόλιο / Sticky Note (N)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+          <span>Σχόλιο</span>
+        </button>
+        <button class="tool-btn" data-tool="highlight" title="Μαρκαδόρος / Highlight (H)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l-6 6v3h9l3-3"/><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>
+          <span>Highlight</span>
+        </button>
+        <button class="tool-btn" data-tool="pen" title="Ελεύθερο Στυλό (P)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+          <span>Στυλό</span>
+        </button>
+        <button class="tool-btn" data-tool="arrow" title="Βέλος (A)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="10 5 19 5 19 14"/></svg>
+          <span>Βέλος</span>
+        </button>
+        <button class="tool-btn" data-tool="rect" title="Πλαίσιο (R)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="1.5"/></svg>
+          <span>Πλαίσιο</span>
+        </button>
+        <button class="tool-btn" data-tool="sign" title="Υπογραφή (S)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17c2-4 4-8 6-8s1 6 3 6 3-4 5-4 2 4 4 4"/><line x1="3" y1="20" x2="21" y2="20"/></svg>
+          <span>Υπογραφή</span>
+        </button>
+        <button class="tool-btn" data-tool="stamp" title="Σφραγίδα (M)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 18h14v3H5z"/><path d="M7 18v-2a3 3 0 0 1 3-3h4a3 3 0 0 1 3 3v2"/><circle cx="12" cy="7" r="3"/></svg>
+          <span>Σφραγίδα</span>
+        </button>
+        <button class="tool-btn" data-tool="image" title="Εισαγωγή Εικόνας / Λογοτύπου (I)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="M21 15l-5-5L5 20"/></svg>
+          <span>Εικόνα</span>
+        </button>
+      </div>
+
+      <div class="tool-divider"></div>
+
+      <!-- Contextual Ink & Size Controls -->
+      <div class="tool-props" id="toolProps">
+        <div class="ink-dots" id="inkPalette">
+          <button class="ink-dot active" data-color="#DC2626" style="--c:#DC2626" title="Κόκκινο"></button>
+          <button class="ink-dot" data-color="#2563EB" style="--c:#2563EB" title="Μπλε"></button>
+          <button class="ink-dot" data-color="#EAB308" style="--c:#EAB308" title="Κίτρινο"></button>
+          <button class="ink-dot" data-color="#059669" style="--c:#059669" title="Πράσινο"></button>
+          <button class="ink-dot" data-color="#111827" style="--c:#111827" title="Μαύρο"></button>
+          <button class="ink-dot" data-color="#FFFFFF" style="--c:#FFFFFF" title="Λευκό"></button>
+        </div>
+        <select id="selStrokeSize" class="mini-select" title="Μέγεθος γραμματοσειράς / γραμμής">
+          <option value="12">12</option>
+          <option value="16" selected>16</option>
+          <option value="22">22</option>
+          <option value="30">30</option>
+          <option value="42">42</option>
+        </select>
+      </div>
+
+      <div class="tool-divider"></div>
+
+      <div class="tool-group compact">
+        <button id="btnUndo" class="icon-btn sm" title="Αναίρεση (Ctrl+Z)">↶</button>
+        <button id="btnRedo" class="icon-btn sm" title="Επανάληψη (Ctrl+Y)">↷</button>
+        <button id="btnDelSelected" class="icon-btn sm danger" title="Διαγραφή επιλεγμένου (Del)" hidden>🗑</button>
+        <button id="btnExportPng" class="text-btn sm" title="Εξαγωγή τρέχουσας σελίδας σε PNG">PNG</button>
+        <button id="btnPrint" class="icon-btn sm" title="Εκτύπωση (Ctrl+P)">⎙</button>
+      </div>
+    </nav>
+
+    <!-- MAIN WORKSPACE -->
+    <main class="workspace" id="dropTarget">
+      <!-- LEFT THUMBNAILS RAIL -->
+      <aside id="thumbRail" class="side-rail left" hidden>
+        <div class="rail-header">
+          <span>Σελίδες</span>
+          <div class="rail-actions">
+            <button id="btnAddBlankPage" class="text-btn xs" title="Προσθήκη κενής A4 σελίδας">+ Σελίδα</button>
+            <button id="btnCloseThumbs" class="icon-btn xs mobile-only">✕</button>
+          </div>
+        </div>
+        <div id="thumbList" class="thumb-list"></div>
+        <div class="rail-footer mobile-only">
+          <button id="btnMobileMerge" class="secondary-btn sm">+ Ένωση PDF</button>
+          <button id="btnMobileSplit" class="secondary-btn sm">Split</button>
+        </div>
+      </aside>
+
+      <!-- CENTER DRAFTING DESK -->
+      <section class="desk" id="deskViewport">
+        <!-- EMPTY / WELCOME VIEW -->
+        <div id="emptyState" class="empty-state">
+          <div class="empty-card">
+            <div class="empty-icon">
+              <img src="./icon.svg" width="54" height="54" alt="NillyDoc Pro" />
+            </div>
+            <h1>Άνοιξε PDF ή ρίξε εικόνες εδώ</h1>
+            <p class="empty-sub">Επεξεργασία, σχόλια, υπογραφές, ένωση και έξυπνη μετατροπή πολλών εικόνων σε PDF με επιλογή μεγέθους. Όλα γίνονται 100% τοπικά στη συσκευή σου.</p>
+            <div class="empty-actions">
+              <button id="btnEmptyOpenPdf" class="primary-btn lg">Άνοιγμα PDF</button>
+              <button id="btnEmptyImgsPdf" class="secondary-btn lg">Εικόνες → PDF (με Resize)</button>
+            </div>
+            <div class="empty-links">
+              <button id="btnEmptyBlank" class="ghost-link">Δημιουργία κενού εγγράφου A4</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- LIVE PDF PAGE STAGE -->
+        <div id="stageWrap" class="stage-wrap" hidden>
+          <div id="pageStage" class="page-stage">
+            <canvas id="pdfCanvas"></canvas>
+            <canvas id="annoCanvas"></canvas>
+            <div id="pinLayer" class="pin-layer"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT COMMENTS DRAWER -->
+      <aside id="commentsRail" class="side-rail right" hidden>
+        <div class="rail-header">
+          <span>Σχόλια &amp; Σημειώσεις</span>
+          <button id="btnCloseComments" class="icon-btn xs">✕</button>
+        </div>
+        <div id="commentsList" class="comments-list"></div>
+      </aside>
+    </main>
+
+    <!-- QUIET STUDIO STATUS FOOTER -->
+    <footer class="studio-footer">
+      <span id="statusText">Έτοιμο · 100% τοπική επεξεργασία</span>
+      <a href="https://nillygraphics.com/" target="_blank" rel="noopener" class="brand-credit">created by Nilly graphics (Sotiris Christos) — nillygraphics.com</a>
+    </footer>
+  </div>
+
+  <!-- HIDDEN FILE INPUTS -->
+  <input id="fileOpenPdf" type="file" accept="application/pdf,.pdf" hidden />
+  <input id="fileMergePdf" type="file" accept="application/pdf,.pdf" multiple hidden />
+  <input id="fileImgsToPdf" type="file" accept="image/*" multiple hidden />
+  <input id="fileInsertImg" type="file" accept="image/*" hidden />
+  <input id="fileSignImg" type="file" accept="image/png,image/jpeg,image/webp" hidden />
+
+  <!-- MODAL 1: MULTI-IMAGES TO PDF + SMART SIZE PICKER -->
+  <div id="modalImgPdf" class="modal-backdrop" hidden>
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div>
+          <h2>Εικόνες → PDF με επιλογή μεγέθους</h2>
+          <p id="lblImgPdfMeta" class="modal-sub">Επίλεξε μέγεθος &amp; διάταξη σελίδας</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalImgPdf">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="sheet-toolbar">
+          <button id="btnAddMoreImgs" class="secondary-btn sm">+ Προσθήκη εικόνων</button>
+          <button id="btnClearImgs" class="text-btn sm">Καθαρισμός</button>
+        </div>
+        <div id="imgQueueList" class="img-queue"></div>
+
+        <label class="field-label">Μέγεθος &amp; Ποιότητα (Resize ταυτόχρονα)</label>
+        <div class="size-grid" id="imgSizeGrid">
+          <button class="size-card" data-size="small">
+            <strong>Small</strong>
+            <span>Email / WhatsApp · max 1200 px</span>
+            <em class="est-tag" data-est="small">~</em>
+          </button>
+          <button class="size-card active" data-size="medium">
+            <strong>Medium</strong>
+            <span>Ισορροπημένο · max 1920 px</span>
+            <em class="est-tag" data-est="medium">~</em>
+          </button>
+          <button class="size-card" data-size="large">
+            <strong>Large</strong>
+            <span>Εκτύπωση · max 3000 px</span>
+            <em class="est-tag" data-est="large">~</em>
+          </button>
+          <button class="size-card" data-size="original">
+            <strong>Original</strong>
+            <span>Αρχική ανάλυση · 100%</span>
+            <em class="est-tag" data-est="original">~</em>
+          </button>
+        </div>
+
+        <label class="field-label">Διάταξη σελίδας</label>
+        <div class="seg-row" id="imgLayoutRow">
+          <button class="seg-btn active" data-layout="a4p">A4 Κάθετο</button>
+          <button class="seg-btn" data-layout="a4l">A4 Οριζόντιο</button>
+          <button class="seg-btn" data-layout="fit">Μέγεθος Εικόνας</button>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalImgPdf">Ακύρωση</button>
+        <button id="btnBuildImgPdf" class="primary-btn">Δημιουργία PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: SMART SAVE & COMPRESS PDF SHEET -->
+  <div id="modalSave" class="modal-backdrop" hidden>
+    <div class="modal-sheet">
+      <div class="modal-head">
+        <div>
+          <h2>Αποθήκευση &amp; Μέγεθος PDF</h2>
+          <p id="lblSaveMeta" class="modal-sub">Επίλεξε αν θες αρχική ποιότητα ή συμπίεση</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalSave">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <label class="field-label" for="inpSaveName">Όνομα αρχείου</label>
+        <input id="inpSaveName" type="text" class="text-input" value="document.pdf" />
+
+        <label class="field-label">Μέγεθος εξαγωγής</label>
+        <div class="size-grid" id="pdfSaveSizeGrid">
+          <button class="size-card active" data-mode="vector">
+            <strong>Original Vector</strong>
+            <span>100% καθαρό κείμενο + σχόλια/υπογραφές</span>
+            <em class="est-tag">Άμεσο</em>
+          </button>
+          <button class="size-card" data-mode="small">
+            <strong>Small</strong>
+            <span>Email / Κινητό · ~110 DPI</span>
+            <em class="est-tag">Ελαφρύ</em>
+          </button>
+          <button class="size-card" data-mode="medium">
+            <strong>Medium</strong>
+            <span>Ισορροπημένο · ~150 DPI</span>
+            <em class="est-tag">Καθημερινό</em>
+          </button>
+          <button class="size-card" data-mode="large">
+            <strong>Large</strong>
+            <span>Εκτύπωση · ~240 DPI</span>
+            <em class="est-tag">Υψηλό</em>
+          </button>
+        </div>
+
+        <label class="check-row">
+          <input id="chkEmbedNotes" type="checkbox" />
+          <span>Αποτύπωση και των Sticky Note σχολίων πάνω στη σελίδα</span>
+        </label>
+      </div>
+
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalSave">Ακύρωση</button>
+        <button id="btnSaveAsDesktop" class="secondary-btn" hidden>Αποθήκευση Ως…</button>
+        <button id="btnConfirmSave" class="primary-btn">Αποθήκευση PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: SIGNATURE PAD -->
+  <div id="modalSign" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Υπογραφή</h2>
+          <p class="modal-sub">Σχεδίασε με ποντίκι ή δάχτυλο, ή ανέβασε PNG υπογραφή</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalSign">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="sign-pad-wrap">
+          <canvas id="signCanvas" width="520" height="190"></canvas>
+        </div>
+        <div class="sheet-toolbar">
+          <div class="ink-dots" id="signInks">
+            <button class="ink-dot active" data-color="#111827" style="--c:#111827"></button>
+            <button class="ink-dot" data-color="#1D4ED8" style="--c:#1D4ED8"></button>
+            <button class="ink-dot" data-color="#DC2626" style="--c:#DC2626"></button>
+          </div>
+          <div class="row-gap">
+            <button id="btnUploadSign" class="secondary-btn sm">Ανέβασμα PNG</button>
+            <button id="btnClearSign" class="text-btn sm">Καθαρισμός</button>
+          </div>
+        </div>
+        <div id="savedSignsRow" class="saved-signs"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalSign">Ακύρωση</button>
+        <button id="btnApplySign" class="primary-btn">Τοποθέτηση στο PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: STAMPS PICKER -->
+  <div id="modalStamp" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Επιλογή Σφραγίδας</h2>
+          <p class="modal-sub">Πάτα μία σφραγίδα και μετά κλικ στη σελίδα</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalStamp">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="stamp-grid" id="stampGrid">
+          <button class="stamp-opt" data-text="ΕΓΚΡΙΘΗΚΕ" data-color="#059669">ΕΓΚΡΙΘΗΚΕ</button>
+          <button class="stamp-opt" data-text="ΠΡΟΣΧΕΔΙΟ" data-color="#D97706">ΠΡΟΣΧΕΔΙΟ</button>
+          <button class="stamp-opt" data-text="ΕΜΠΙΣΤΕΥΤΙΚΟ" data-color="#DC2626">ΕΜΠΙΣΤΕΥΤΙΚΟ</button>
+          <button class="stamp-opt" data-text="ΕΞΟΦΛΗΘΗΚΕ" data-color="#2563EB">ΕΞΟΦΛΗΘΗΚΕ</button>
+          <button class="stamp-opt" data-text="NILLY GRAPHICS" data-color="#111827">NILLY GRAPHICS</button>
+        </div>
+        <div class="custom-stamp-row">
+          <input id="inpCustomStamp" type="text" class="text-input" placeholder="Ή γράψε δική σου σφραγίδα..." />
+          <button id="btnUseCustomStamp" class="secondary-btn sm">Χρήση</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: SPLIT / EXTRACT PAGES -->
+  <div id="modalSplit" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Εξαγωγή Σελίδων (Split)</h2>
+          <p id="lblSplitMeta" class="modal-sub">Γράψε τις σελίδες που θες να εξάγεις σε νέο PDF</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalSplit">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field-label" for="inpSplitRange">Σελίδες (π.χ. 1-3, 5, 8)</label>
+        <input id="inpSplitRange" type="text" class="text-input" value="1" />
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalSplit">Ακύρωση</button>
+        <button id="btnConfirmSplit" class="primary-btn">Εξαγωγή PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 6: ADD / EDIT TEXT OR COMMENT -->
+  <div id="modalPrompt" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <h2 id="lblPromptTitle">Κείμενο</h2>
+        <button class="icon-btn sm" data-close="modalPrompt">✕</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="txtPromptInput" class="text-area" rows="3" placeholder="Γράψε εδώ (Ελληνικά & Αγγλικά)..."></textarea>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalPrompt">Ακύρωση</button>
+        <button id="btnPromptOk" class="primary-btn">Εφαρμογή</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- OFFLINE LOCAL PDF ENGINES (0 CDN dependencies!) -->
+  <script src="./vendor/pdf.min.js"></script>
+  <script src="./vendor/pdf-lib.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

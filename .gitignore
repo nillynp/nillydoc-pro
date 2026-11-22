@@ -1,0 +1,8 @@
+# Compiled local executable (auto-built cleanly on first install via Install_NillyDocPro.bat)
+NillyDocPro.exe
+*.tmp
+*.nillytmp
+*.bak
+*.log
+.DS_Store
+Thumbs.db
