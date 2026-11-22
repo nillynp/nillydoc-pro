@@ -44,6 +44,10 @@
     tool: 'select',
     color: '#DC2626',
     strokeSize: 16,
+    textBg: false,           // Opaque white mask behind text (Acrobat cover+replace)
+    watermark: null,         // { text, color, opacity, style } applied to ALL pages
+    pageNumbers: null,       // { pos: 'left'|'center'|'right', fmt: 'of'|'num' } applied to ALL pages
+    docMeta: { title: '', author: BRAND_AUTHOR },
     annotations: [],         // Array<Array<Anno>> indexed by 0..(pageCount-1)
     undoStack: [],           // Per-page undo snapshots
     redoStack: [],           // Per-page redo snapshots
@@ -52,6 +56,24 @@
     pendingStamp: null,      // { text, color }
     pendingSignSrc: null,    // DataURL
     pendingImgSrc: null,     // DataURL + aspect
+
+    // Pan & Zoom ergonomics (Space+Drag / Middle-Click)
+    spaceDown: false,
+    panActive: false,
+    panStart: null,
+
+    // Export Images modal choices
+    expScope: 'current',
+    expFmt: 'png',
+    expDpi: 300,
+
+    // Watermark modal choices
+    wmColor: '#64748B',
+    wmStyle: 'diag',
+
+    // Page numbers modal choices
+    pnPos: 'center',
+    pnFmt: 'of',
 
     // Pointer interaction
     dragging: false,
@@ -111,6 +133,13 @@
     btnToggleComments: $('btnToggleComments'),
     btnCloseComments: $('btnCloseComments'),
     badgeComments: $('badgeComments'),
+    moreMenuWrap: $('moreMenuWrap'),
+    btnMoreMenu: $('btnMoreMenu'),
+    moreMenu: $('moreMenu'),
+    btnWatermarkOpen: $('btnWatermarkOpen'),
+    btnPageNumsOpen: $('btnPageNumsOpen'),
+    btnExportImgsOpen: $('btnExportImgsOpen'),
+    btnDocInfoOpen: $('btnDocInfoOpen'),
     btnSaveOpen: $('btnSaveOpen'),
     btnThemeToggle: $('btnThemeToggle'),
 
@@ -124,6 +153,7 @@
     toolStrip: $('toolStrip'),
     inkPalette: $('inkPalette'),
     selStrokeSize: $('selStrokeSize'),
+    btnTextBg: $('btnTextBg'),
     btnUndo: $('btnUndo'),
     btnRedo: $('btnRedo'),
     btnDelSelected: $('btnDelSelected'),
@@ -143,6 +173,7 @@
     pageStage: $('pageStage'),
     pdfCanvas: $('pdfCanvas'),
     annoCanvas: $('annoCanvas'),
+    textLayer: $('textLayer'),
     pinLayer: $('pinLayer'),
     commentsRail: $('commentsRail'),
     commentsList: $('commentsList'),
@@ -194,6 +225,34 @@
     lblPromptTitle: $('lblPromptTitle'),
     txtPromptInput: $('txtPromptInput'),
     btnPromptOk: $('btnPromptOk'),
+
+    modalWatermark: $('modalWatermark'),
+    inpWmText: $('inpWmText'),
+    wmColors: $('wmColors'),
+    rngWmOpacity: $('rngWmOpacity'),
+    lblWmOpacity: $('lblWmOpacity'),
+    wmStyleRow: $('wmStyleRow'),
+    btnClearWatermark: $('btnClearWatermark'),
+    btnApplyWatermark: $('btnApplyWatermark'),
+
+    modalPageNums: $('modalPageNums'),
+    pnPosRow: $('pnPosRow'),
+    pnFmtRow: $('pnFmtRow'),
+    btnClearPageNums: $('btnClearPageNums'),
+    btnApplyPageNums: $('btnApplyPageNums'),
+
+    modalExportImgs: $('modalExportImgs'),
+    lblExportImgsMeta: $('lblExportImgsMeta'),
+    expScopeRow: $('expScopeRow'),
+    expFmtRow: $('expFmtRow'),
+    expDpiRow: $('expDpiRow'),
+    btnConfirmExportImgs: $('btnConfirmExportImgs'),
+
+    modalDocInfo: $('modalDocInfo'),
+    docSpecsGrid: $('docSpecsGrid'),
+    inpMetaTitle: $('inpMetaTitle'),
+    inpMetaAuthor: $('inpMetaAuthor'),
+    btnSaveDocMeta: $('btnSaveDocMeta'),
 
     toast: $('toast')
   };
@@ -330,7 +389,21 @@
         state.annotations = Array.from({ length: doc.numPages }, () => []);
         state.undoStack = Array.from({ length: doc.numPages }, () => []);
         state.redoStack = Array.from({ length: doc.numPages }, () => []);
+        state.watermark = null;
+        state.pageNumbers = null;
         state.dirty = !!options.markDirty;
+      }
+
+      // Extract existing PDF metadata for Prepress Inspector
+      try {
+        const meta = await doc.getMetadata();
+        const info = (meta && meta.info) || {};
+        state.docMeta = {
+          title: info.Title || state.fileName.replace(/\.pdf$/i, ''),
+          author: info.Author || BRAND_AUTHOR
+        };
+      } catch (_) {
+        state.docMeta = { title: state.fileName.replace(/\.pdf$/i, ''), author: BRAND_AUTHOR };
       }
 
       // Reveal editor UI
@@ -338,10 +411,9 @@
       el.stageWrap.hidden = false;
       el.navControls.hidden = false;
       el.toolStrip.hidden = false;
-      el.btnMergePdf.hidden = false;
-      el.btnSplitPdf.hidden = false;
       el.btnSearchToggle.hidden = false;
       el.btnToggleComments.hidden = false;
+      el.moreMenuWrap.hidden = false;
       el.btnSaveOpen.hidden = false;
 
       if (window.innerWidth > 960 && state.pageCount > 1) {
@@ -377,7 +449,8 @@
 
   function stampPdfMetadata(pdfLibDoc) {
     try {
-      pdfLibDoc.setAuthor(BRAND_AUTHOR);
+      if (state.docMeta && state.docMeta.title) pdfLibDoc.setTitle(state.docMeta.title);
+      pdfLibDoc.setAuthor((state.docMeta && state.docMeta.author) || BRAND_AUTHOR);
       pdfLibDoc.setCreator(BRAND_PRODUCER);
       pdfLibDoc.setProducer(BRAND_PRODUCER);
     } catch (_) {}
@@ -450,7 +523,47 @@
 
     drawAnnotations();
     renderNotePins();
+    renderTextLayer(page, cssVp);
     updateUndoButtons();
+  }
+
+  // Native Acrobat-Style Selectable PDF Text Layer (drag-select & Ctrl+C copy!)
+  async function renderTextLayer(page, cssVp) {
+    if (!el.textLayer) return;
+    el.textLayer.innerHTML = '';
+    el.textLayer.classList.toggle('selectable', state.tool === 'select');
+    try {
+      const tc = await page.getTextContent();
+      const frag = document.createDocumentFragment();
+      const measureCtx = document.createElement('canvas').getContext('2d');
+
+      for (const it of tc.items) {
+        if (!it.str) continue;
+        const tx = window.pdfjsLib.Util.transform(cssVp.transform, it.transform);
+        const fontH = Math.hypot(tx[2], tx[3]);
+        if (fontH < 2) continue;
+        const angle = Math.atan2(tx[1], tx[0]);
+        const span = document.createElement('span');
+        span.textContent = it.str;
+        span.style.left = tx[4] + 'px';
+        span.style.top = (tx[5] - fontH * 0.88) + 'px';
+        span.style.fontSize = fontH + 'px';
+        span.style.fontFamily = 'sans-serif';
+
+        const targetW = (it.width || 0) * cssVp.scale;
+        let transformStr = '';
+        if (Math.abs(angle) > 0.01) transformStr += `rotate(${angle}rad) `;
+        if (targetW > 1) {
+          measureCtx.font = `${fontH}px sans-serif`;
+          const natW = measureCtx.measureText(it.str).width || targetW;
+          const sx = clamp(targetW / natW, 0.35, 3.0);
+          transformStr += `scaleX(${sx.toFixed(3)})`;
+        }
+        if (transformStr) span.style.transform = transformStr.trim();
+        frag.appendChild(span);
+      }
+      el.textLayer.appendChild(frag);
+    } catch (_) {}
   }
 
   // ==========================================================================
@@ -879,10 +992,16 @@
       } else if (a.type === 'text') {
         const fs = (a.size || 16) * sf;
         ctx.font = `600 ${fs}px "Segoe UI", -apple-system, Arial, sans-serif`;
-        ctx.fillStyle = a.color || '#111827';
         ctx.textBaseline = 'top';
         const lines = String(a.text || '').split('\n');
         const lh = fs * 1.28;
+        if (a.bg) {
+          let maxW = 20 * sf;
+          for (const ln of lines) maxW = Math.max(maxW, ctx.measureText(ln).width);
+          ctx.fillStyle = a.bg;
+          ctx.fillRect(a.x * W - 2 * sf, a.y * H - 1 * sf, maxW + 12 * sf, lines.length * lh + 6 * sf);
+        }
+        ctx.fillStyle = a.color || '#111827';
         lines.forEach((ln, i) => {
           ctx.fillText(ln, a.x * W + 3 * sf, a.y * H + i * lh + 2 * sf);
         });
@@ -915,6 +1034,16 @@
         }
       }
       ctx.restore();
+    }
+
+    // Draw Document-wide Watermark (all pages)
+    if (state.watermark && state.watermark.text) {
+      drawDocumentWatermark(ctx, W, H, sf, state.watermark);
+    }
+
+    // Draw Document-wide Page Numbers (all pages)
+    if (state.pageNumbers && opts.pageNum) {
+      drawDocumentPageNumber(ctx, W, H, sf, state.pageNumbers, opts.pageNum, opts.pageCount || state.pageCount);
     }
 
     // Draw search highlights on screen
@@ -989,6 +1118,64 @@
     ctx.restore();
   }
 
+  function drawDocumentWatermark(ctx, W, H, sf, wm) {
+    ctx.save();
+    ctx.globalAlpha = clamp((wm.opacity || 18) / 100, 0.05, 0.65);
+    ctx.fillStyle = wm.color || '#64748B';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const txt = String(wm.text || '');
+
+    if (wm.style === 'tile') {
+      const fs = 22 * sf;
+      ctx.font = `700 ${fs}px "Segoe UI", Arial, sans-serif`;
+      const stepX = Math.max(220 * sf, ctx.measureText(txt).width + 72 * sf);
+      const stepY = 150 * sf;
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(-Math.PI / 5);
+      for (let y = -H; y <= H; y += stepY) {
+        for (let x = -W; x <= W; x += stepX) {
+          ctx.fillText(txt, x, y);
+        }
+      }
+    } else {
+      const targetW = W * (wm.style === 'diag' ? 0.92 : 0.80);
+      let fs = 54 * sf;
+      ctx.font = `800 ${fs}px "Segoe UI", Arial, sans-serif`;
+      const measured = ctx.measureText(txt).width || 1;
+      if (measured > targetW) {
+        fs = Math.max(14 * sf, fs * (targetW / measured));
+        ctx.font = `800 ${fs}px "Segoe UI", Arial, sans-serif`;
+      }
+      ctx.translate(W / 2, H / 2);
+      if (wm.style === 'diag') ctx.rotate(-Math.PI / 4.5);
+      ctx.fillText(txt, 0, 0);
+    }
+    ctx.restore();
+  }
+
+  function drawDocumentPageNumber(ctx, W, H, sf, pn, pageNum, pageCount) {
+    const label = pn.fmt === 'num' ? String(pageNum) : `${pageNum} / ${pageCount}`;
+    const fs = 12 * sf;
+    const marginX = 36 * sf;
+    const y = H - 24 * sf;
+    ctx.save();
+    ctx.font = `600 ${fs}px "Segoe UI", Arial, sans-serif`;
+    ctx.fillStyle = '#475569';
+    ctx.textBaseline = 'middle';
+    if (pn.pos === 'left') {
+      ctx.textAlign = 'left';
+      ctx.fillText(label, marginX, y);
+    } else if (pn.pos === 'right') {
+      ctx.textAlign = 'right';
+      ctx.fillText(label, W - marginX, y);
+    } else {
+      ctx.textAlign = 'center';
+      ctx.fillText(label, W / 2, y);
+    }
+    ctx.restore();
+  }
+
   function isResizable(a) {
     return ['whiteout', 'rect', 'highlight', 'sign', 'image', 'stamp'].includes(a.type);
   }
@@ -1004,7 +1191,9 @@
     renderAnnoListToContext(ctx, cv.width, cv.height, list, {
       selectedId: state.selectedId,
       drawSearch: true,
-      embedNotes: false
+      embedNotes: false,
+      pageNum: state.currentPage,
+      pageCount: state.pageCount
     });
   }
 
@@ -1148,6 +1337,10 @@
     else if (toolName === 'text' || toolName === 'note') el.annoCanvas.classList.add('text-mode');
     else el.annoCanvas.classList.add('drawing-mode');
 
+    if (el.textLayer) {
+      el.textLayer.classList.toggle('selectable', toolName === 'select');
+    }
+
     if (toolName !== 'select') {
       state.selectedId = null;
       el.btnDelSelected.hidden = true;
@@ -1177,6 +1370,8 @@
 
   function onStagePointerDown(e) {
     if (!state.pdfDoc) return;
+    if (e.target && e.target.closest && e.target.closest('.note-pin')) return;
+    if (state.spaceDown || e.button === 1) return; // Handled by desk hand-pan
     if (e.button && e.button !== 0) return;
 
     const pt = getNormPoint(e);
@@ -1185,12 +1380,13 @@
     if (state.tool === 'select') {
       const currentSel = getPageAnnos().find((x) => x.id === state.selectedId);
       if (currentSel && hitTestResizeHandle(pt.x, pt.y, currentSel)) {
+        e.preventDefault();
         state.dragging = true;
         state.dragMode = 'resize';
         state.dragStartNorm = pt;
         state.dragOrigSnapshot = JSON.parse(JSON.stringify(currentSel));
         pushUndo(pageIdx);
-        el.annoCanvas.setPointerCapture(e.pointerId);
+        try { el.pageStage.setPointerCapture(e.pointerId); } catch (_) {}
         return;
       }
 
@@ -1200,13 +1396,16 @@
       drawAnnotations();
 
       if (hit) {
+        e.preventDefault();
+        try { window.getSelection().removeAllRanges(); } catch (_) {}
         state.dragging = true;
         state.dragMode = 'move';
         state.dragStartNorm = pt;
         state.dragOrigSnapshot = JSON.parse(JSON.stringify(hit));
         pushUndo(pageIdx);
-        el.annoCanvas.setPointerCapture(e.pointerId);
+        try { el.pageStage.setPointerCapture(e.pointerId); } catch (_) {}
       }
+      // If no annotation hit, let browser natively select & copy PDF text from #textLayer!
       return;
     }
 
@@ -1220,11 +1419,10 @@
           y: pt.y,
           text: val,
           color: state.color,
-          size: state.strokeSize
+          size: state.strokeSize,
+          bg: state.textBg ? '#FFFFFF' : null
         };
         getPageAnnos().push(item);
-        state.selectedId = item.id;
-        el.btnDelSelected.hidden = false;
         setTool('select');
         state.selectedId = item.id;
         el.btnDelSelected.hidden = false;
@@ -1317,7 +1515,7 @@
       };
     }
 
-    el.annoCanvas.setPointerCapture(e.pointerId);
+    try { el.pageStage.setPointerCapture(e.pointerId); } catch (_) {}
     drawAnnotations();
   }
 
@@ -1375,7 +1573,7 @@
   function onStagePointerUp(e) {
     if (!state.dragging) return;
     state.dragging = false;
-    try { el.annoCanvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    try { el.pageStage.releasePointerCapture(e.pointerId); } catch (_) {}
 
     if (state.dragMode === 'draw' && state.draftAnno) {
       const d = state.draftAnno;
@@ -1837,7 +2035,9 @@
     for (let i = 0; i < pages.length; i++) {
       if (opts.onlyPageIdx !== undefined && opts.onlyPageIdx !== i) continue;
       const list = state.annotations[i] || [];
-      const hasDrawable = list.some((a) => a.type !== 'note' || opts.embedNotes);
+      const hasDrawable = list.some((a) => a.type !== 'note' || opts.embedNotes)
+        || !!(state.watermark && state.watermark.text)
+        || !!state.pageNumbers;
       if (!hasDrawable) continue;
 
       const pg = pages[i];
@@ -1847,7 +2047,7 @@
       const visW = swapped ? height : width;
       const visH = swapped ? width : height;
 
-      // Render crisp 2.5x transparent overlay PNG (100% lossless Greek UTF-8 + signatures!)
+      // Render crisp 2.5x transparent overlay PNG (100% lossless Greek UTF-8 + signatures + watermark + page nums!)
       const scale = 2.5;
       const cv = document.createElement('canvas');
       cv.width = Math.round(visW * scale);
@@ -1856,7 +2056,9 @@
       const preloaded = await preloadAnnoImages(list);
       renderAnnoListToContext(ctx, cv.width, cv.height, list, {
         embedNotes: !!opts.embedNotes,
-        preloadedImages: preloaded
+        preloadedImages: preloaded,
+        pageNum: i + 1,
+        pageCount: pages.length
       });
 
       // Counter-rotate overlay if underlying PDF page has a /Rotate entry
@@ -1907,11 +2109,13 @@
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
       const list = state.annotations[p - 1] || [];
-      if (list.length) {
+      if (list.length || (state.watermark && state.watermark.text) || state.pageNumbers) {
         const preloaded = await preloadAnnoImages(list);
         renderAnnoListToContext(ctx, cv.width, cv.height, list, {
           embedNotes,
-          preloadedImages: preloaded
+          preloadedImages: preloaded,
+          pageNum: p,
+          pageCount: state.pageCount
         });
       }
 
@@ -2001,37 +2205,96 @@
     }
   }
 
-  // Export current page as crisp 300-DPI PNG
-  async function exportCurrentPagePng() {
+  // Export 1 or All pages as crisp 150/300-DPI PNG or JPG
+  async function exportPagesToImages(scope = 'current', fmt = 'png', dpi = 300) {
     if (!state.pdfDoc) return;
+    const pages = scope === 'all'
+      ? Array.from({ length: state.pageCount }, (_, i) => i + 1)
+      : [state.currentPage];
+    const scale = clamp(dpi / 72, 1.0, 4.2);
+    const mime = fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
+    const ext = fmt === 'jpeg' ? 'jpg' : 'png';
+    const base = state.fileName.replace(/\.pdf$/i, '');
+
     try {
-      const page = await state.pdfDoc.getPage(state.currentPage);
-      const vp = page.getViewport({ scale: 2.5 });
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(vp.width);
-      cv.height = Math.round(vp.height);
-      const ctx = cv.getContext('2d', { alpha: false });
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, cv.width, cv.height);
-      await page.render({ canvasContext: ctx, viewport: vp }).promise;
+      for (const p of pages) {
+        const page = await state.pdfDoc.getPage(p);
+        const vp = page.getViewport({ scale });
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(vp.width);
+        cv.height = Math.round(vp.height);
+        const ctx = cv.getContext('2d', { alpha: false });
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
-      const list = getPageAnnos();
-      if (list.length) {
-        const preloaded = await preloadAnnoImages(list);
-        renderAnnoListToContext(ctx, cv.width, cv.height, list, { preloadedImages: preloaded });
+        const list = state.annotations[p - 1] || [];
+        if (list.length || (state.watermark && state.watermark.text) || state.pageNumbers) {
+          const preloaded = await preloadAnnoImages(list);
+          renderAnnoListToContext(ctx, cv.width, cv.height, list, {
+            preloadedImages: preloaded,
+            pageNum: p,
+            pageCount: state.pageCount
+          });
+        }
+
+        const url = cv.toDataURL(mime, 0.92);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${base}_p${p}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        if (pages.length > 1) await new Promise((r) => setTimeout(r, 180));
       }
-
-      const url = cv.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${state.fileName.replace(/\.pdf$/i, '')}_page${state.currentPage}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      showToast(`Εξήχθη η σελίδα ${state.currentPage} σε PNG`);
+      showToast(pages.length > 1
+        ? `Εξήχθησαν ${pages.length} σελίδες σε ${ext.toUpperCase()} (${dpi} DPI)`
+        : `Εξήχθη η σελίδα ${state.currentPage} σε ${ext.toUpperCase()} (${dpi} DPI)`);
     } catch (_) {
-      showToast('Σφάλμα εξαγωγής PNG.');
+      showToast('Σφάλμα εξαγωγής εικόνας.');
     }
+  }
+
+  function exportCurrentPagePng() {
+    exportPagesToImages('current', 'png', 220);
+  }
+
+  // Prepress Paper Format Detector (mm / cm / pt)
+  function detectPaperFormat(wMm, hMm) {
+    const lo = Math.min(wMm, hMm), hi = Math.max(wMm, hMm);
+    const orient = wMm > hMm + 2 ? 'Οριζόντιο' : (hMm > wMm + 2 ? 'Κάθετο' : 'Τετράγωνο');
+    const presets = [
+      ['A3', 297, 420], ['A4', 210, 297], ['A5', 148, 210],
+      ['A6', 105, 148], ['B5', 176, 250], ['US Letter', 215.9, 279.4], ['Tabloid', 279.4, 431.8]
+    ];
+    for (const [name, pw, ph] of presets) {
+      if (Math.abs(lo - pw) <= 2.5 && Math.abs(hi - ph) <= 2.5) return `${name} · ${orient}`;
+    }
+    return `Custom · ${orient}`;
+  }
+
+  function openDocInfoModal() {
+    if (!state.pdfDoc) return;
+    const wMm = (state.pageBaseW * 25.4) / 72;
+    const hMm = (state.pageBaseH * 25.4) / 72;
+    const formatLbl = detectPaperFormat(wMm, hMm);
+    let totalAnnos = 0, totalNotes = 0;
+    for (const list of state.annotations) {
+      for (const a of (list || [])) {
+        if (a.type === 'note') totalNotes++; else totalAnnos++;
+      }
+    }
+    el.docSpecsGrid.innerHTML = `
+      <div class="spec-box"><span>Διαστάσεις (mm)</span><strong>${wMm.toFixed(1)} × ${hMm.toFixed(1)} mm</strong></div>
+      <div class="spec-box"><span>Μορφή / Προσανατολισμός</span><strong>${formatLbl}</strong></div>
+      <div class="spec-box"><span>Εκατοστά (cm) &amp; Points</span><strong>${(wMm / 10).toFixed(1)} × ${(hMm / 10).toFixed(1)} cm · ${Math.round(state.pageBaseW)}×${Math.round(state.pageBaseH)} pt</strong></div>
+      <div class="spec-box"><span>Αρχείο &amp; Σελίδες</span><strong>${state.pageCount} σελ. · ${formatBytes(state.pdfBytes.byteLength)}</strong></div>
+      <div class="spec-box"><span>Επεξεργασίες / Σχόλια</span><strong>${totalAnnos} σημάνσεις · ${totalNotes} σχόλια</strong></div>
+      <div class="spec-box"><span>Υδατογράφημα / Αρίθμηση</span><strong>${state.watermark ? 'Ενεργό' : 'Όχι'} / ${state.pageNumbers ? 'Ενεργή' : 'Όχι'}</strong></div>
+    `;
+    el.inpMetaTitle.value = (state.docMeta && state.docMeta.title) || '';
+    el.inpMetaAuthor.value = (state.docMeta && state.docMeta.author) || BRAND_AUTHOR;
+    openModal(el.modalDocInfo);
   }
 
   // ==========================================================================
@@ -2127,12 +2390,48 @@
     el.btnEmptyImgsPdf.addEventListener('click', triggerImgsPdf);
     el.btnEmptyBlank.addEventListener('click', createBlankA4Pdf);
     el.btnAddBlankPage.addEventListener('click', addBlankPage);
-    el.btnMergePdf.addEventListener('click', () => { el.fileMergePdf.value = ''; el.fileMergePdf.click(); });
+    // More Studio Tools Popover (...)
+    const closeMoreMenu = () => { if (el.moreMenu) el.moreMenu.hidden = true; };
+    el.btnMoreMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+      el.moreMenu.hidden = !el.moreMenu.hidden;
+    });
+    document.addEventListener('click', (e) => {
+      if (!el.moreMenu.hidden && !el.moreMenuWrap.contains(e.target)) closeMoreMenu();
+    });
+
+    el.btnMergePdf.addEventListener('click', () => { closeMoreMenu(); el.fileMergePdf.value = ''; el.fileMergePdf.click(); });
     el.btnSplitPdf.addEventListener('click', () => {
+      closeMoreMenu();
       if (!state.pdfDoc) return;
       el.lblSplitMeta.textContent = `Έγγραφο ${state.pageCount} σελίδων — γράψε ποιες θες να εξάγεις`;
       el.inpSplitRange.value = state.pageCount > 1 ? `1-${state.pageCount}` : '1';
       openModal(el.modalSplit);
+    });
+    el.btnWatermarkOpen.addEventListener('click', () => {
+      closeMoreMenu();
+      if (!state.pdfDoc) return;
+      if (state.watermark) {
+        el.inpWmText.value = state.watermark.text;
+        el.rngWmOpacity.value = String(state.watermark.opacity);
+        el.lblWmOpacity.textContent = state.watermark.opacity + '%';
+      }
+      openModal(el.modalWatermark);
+    });
+    el.btnPageNumsOpen.addEventListener('click', () => {
+      closeMoreMenu();
+      if (!state.pdfDoc) return;
+      openModal(el.modalPageNums);
+    });
+    el.btnExportImgsOpen.addEventListener('click', () => {
+      closeMoreMenu();
+      if (!state.pdfDoc) return;
+      el.lblExportImgsMeta.textContent = `Σύνολο ${state.pageCount} ${state.pageCount === 1 ? 'σελίδα' : 'σελίδες'} — διάλεξε μορφή & DPI`;
+      openModal(el.modalExportImgs);
+    });
+    el.btnDocInfoOpen.addEventListener('click', () => {
+      closeMoreMenu();
+      openDocInfoModal();
     });
     const mMerge = $('btnMobileMerge');
     const mSplit = $('btnMobileSplit');
@@ -2220,18 +2519,96 @@
       }
     });
 
+    el.btnTextBg.addEventListener('click', () => {
+      state.textBg = !state.textBg;
+      el.btnTextBg.classList.toggle('active', state.textBg);
+      if (state.selectedId) {
+        const sel = getPageAnnos().find((x) => x.id === state.selectedId);
+        if (sel && sel.type === 'text') {
+          pushUndo(state.currentPage - 1);
+          sel.bg = state.textBg ? '#FFFFFF' : null;
+          drawAnnotations();
+        }
+      }
+      showToast(state.textBg ? 'Λευκό φόντο κειμένου: ΕΝΕΡΓΟ (καλύπτει παλιό κείμενο)' : 'Λευκό φόντο κειμένου: ΑΝΕΝΕΡΓΟ', 2200);
+    });
+
     el.btnUndo.addEventListener('click', undo);
     el.btnRedo.addEventListener('click', redo);
     el.btnDelSelected.addEventListener('click', deleteSelected);
     el.btnExportPng.addEventListener('click', exportCurrentPagePng);
     el.btnPrint.addEventListener('click', () => window.print());
 
-    // Canvas pointer listeners
-    el.annoCanvas.addEventListener('pointerdown', onStagePointerDown);
-    el.annoCanvas.addEventListener('pointermove', onStagePointerMove);
-    el.annoCanvas.addEventListener('pointerup', onStagePointerUp);
-    el.annoCanvas.addEventListener('pointercancel', onStagePointerUp);
-    el.annoCanvas.addEventListener('dblclick', onStageDblClick);
+    // Unified Stage pointer listeners (coexists cleanly with native PDF #textLayer copy!)
+    el.pageStage.addEventListener('pointerdown', onStagePointerDown);
+    el.pageStage.addEventListener('pointermove', onStagePointerMove);
+    el.pageStage.addEventListener('pointerup', onStagePointerUp);
+    el.pageStage.addEventListener('pointercancel', onStagePointerUp);
+    el.pageStage.addEventListener('dblclick', onStageDblClick);
+
+    // Designer Ergonomics: Ctrl + Mouse Wheel Smooth Zoom
+    el.deskViewport.addEventListener('wheel', (e) => {
+      if (!state.pdfDoc || (!e.ctrlKey && !e.metaKey)) return;
+      e.preventDefault();
+      state.fitWidth = false;
+      const step = e.deltaY < 0 ? 0.12 : -0.12;
+      state.zoom = clamp(state.zoom + step, 0.35, 3.0);
+      renderCurrentPage(false);
+    }, { passive: false });
+
+    // Designer Ergonomics: Space+Drag or Middle-Mouse Hand Pan
+    el.deskViewport.addEventListener('pointerdown', (e) => {
+      if (!state.pdfDoc) return;
+      if (state.spaceDown || e.button === 1) {
+        e.preventDefault();
+        state.panActive = true;
+        state.panStart = {
+          x: e.clientX,
+          y: e.clientY,
+          sl: el.deskViewport.scrollLeft,
+          st: el.deskViewport.scrollTop
+        };
+        el.deskViewport.classList.add('panning-active');
+        try { el.deskViewport.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+    });
+    el.deskViewport.addEventListener('pointermove', (e) => {
+      if (!state.panActive || !state.panStart) return;
+      el.deskViewport.scrollLeft = state.panStart.sl - (e.clientX - state.panStart.x);
+      el.deskViewport.scrollTop = state.panStart.st - (e.clientY - state.panStart.y);
+    });
+    const endPan = (e) => {
+      if (!state.panActive) return;
+      state.panActive = false;
+      state.panStart = null;
+      el.deskViewport.classList.remove('panning-active');
+      try { el.deskViewport.releasePointerCapture(e.pointerId); } catch (_) {}
+    };
+    el.deskViewport.addEventListener('pointerup', endPan);
+    el.deskViewport.addEventListener('pointercancel', endPan);
+
+    // Direct Ctrl+V Clipboard Image Paste (works straight from Nilly QuickSnap Ctrl+Alt+S!)
+    window.addEventListener('paste', async (e) => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      const items = Array.from(e.clipboardData?.items || []);
+      const imgItem = items.find((it) => it.type && it.type.startsWith('image/'));
+      if (!imgItem) return;
+      const blob = imgItem.getAsFile();
+      if (!blob) return;
+      e.preventDefault();
+      if (!state.pdfDoc) {
+        const f = new File([blob], `clipboard_${Date.now()}.png`, { type: blob.type || 'image/png' });
+        await enqueueImagesForPdf([f]);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        placeImageOverlay(reader.result, 'image', 0.5, 0.45, 0.36);
+        showToast('Επικολλήθηκε εικόνα από το πρόχειρο (Ctrl+V)');
+      };
+      reader.readAsDataURL(blob);
+    });
 
     // Search bar
     el.btnSearchToggle.addEventListener('click', () => {
@@ -2391,10 +2768,109 @@
     };
     el.btnPromptOk.addEventListener('click', commitPrompt);
     el.txtPromptInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         commitPrompt();
       }
+    });
+
+    // Watermark modal (All pages)
+    el.wmColors.querySelectorAll('.ink-dot').forEach((dot) => {
+      dot.addEventListener('click', () => {
+        state.wmColor = dot.dataset.color;
+        el.wmColors.querySelectorAll('.ink-dot').forEach((d) => d.classList.toggle('active', d === dot));
+      });
+    });
+    el.rngWmOpacity.addEventListener('input', () => {
+      el.lblWmOpacity.textContent = el.rngWmOpacity.value + '%';
+    });
+    el.wmStyleRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.wmStyle = btn.dataset.wmstyle;
+        el.wmStyleRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.btnApplyWatermark.addEventListener('click', () => {
+      const text = el.inpWmText.value.trim();
+      if (!text) { showToast('Γράψε κείμενο για το υδατογράφημα.'); return; }
+      state.watermark = {
+        text,
+        color: state.wmColor,
+        opacity: parseInt(el.rngWmOpacity.value, 10) || 18,
+        style: state.wmStyle
+      };
+      state.dirty = true;
+      closeModal(el.modalWatermark);
+      drawAnnotations();
+      showToast('Εφαρμόστηκε υδατογράφημα σε όλες τις σελίδες');
+    });
+    el.btnClearWatermark.addEventListener('click', () => {
+      state.watermark = null;
+      closeModal(el.modalWatermark);
+      drawAnnotations();
+      showToast('Αφαιρέθηκε το υδατογράφημα');
+    });
+
+    // Page Numbers modal (All pages)
+    el.pnPosRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.pnPos = btn.dataset.pos;
+        el.pnPosRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.pnFmtRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.pnFmt = btn.dataset.fmt;
+        el.pnFmtRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.btnApplyPageNums.addEventListener('click', () => {
+      state.pageNumbers = { pos: state.pnPos, fmt: state.pnFmt };
+      state.dirty = true;
+      closeModal(el.modalPageNums);
+      drawAnnotations();
+      showToast('Ενεργοποιήθηκε αρίθμηση σε όλες τις σελίδες');
+    });
+    el.btnClearPageNums.addEventListener('click', () => {
+      state.pageNumbers = null;
+      closeModal(el.modalPageNums);
+      drawAnnotations();
+      showToast('Αφαιρέθηκε η αρίθμηση σελίδων');
+    });
+
+    // Export Images modal (PNG / JPG · 150 / 300 DPI · Current / All)
+    el.expScopeRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.expScope = btn.dataset.scope;
+        el.expScopeRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.expFmtRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.expFmt = btn.dataset.fmt;
+        el.expFmtRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.expDpiRow.querySelectorAll('.seg-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.expDpi = parseInt(btn.dataset.dpi, 10) || 300;
+        el.expDpiRow.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      });
+    });
+    el.btnConfirmExportImgs.addEventListener('click', async () => {
+      closeModal(el.modalExportImgs);
+      await exportPagesToImages(state.expScope, state.expFmt, state.expDpi);
+    });
+
+    // Prepress Document Properties modal (Ctrl+D)
+    el.btnSaveDocMeta.addEventListener('click', () => {
+      state.docMeta = {
+        title: el.inpMetaTitle.value.trim(),
+        author: el.inpMetaAuthor.value.trim() || BRAND_AUTHOR
+      };
+      state.dirty = true;
+      closeModal(el.modalDocInfo);
+      showToast('Ενημερώθηκαν τα μεταδεδομένα (θα γραφτούν στην Αποθήκευση)');
     });
 
     // Generic modal close buttons & backdrop click
@@ -2405,6 +2881,22 @@
       bd.addEventListener('click', (e) => {
         if (e.target === bd) closeModal(bd);
       });
+    });
+
+    // Spacebar release ends Hand Pan mode
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && state.spaceDown) {
+        state.spaceDown = false;
+        el.deskViewport.classList.remove('panning');
+      }
+    });
+
+    // Protect unsaved work on accidental tab/window close
+    window.addEventListener('beforeunload', (e) => {
+      if (state.dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     });
 
     // Global Keyboard Shortcuts
@@ -2420,6 +2912,21 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
         e.preventDefault();
         triggerOpenPdf();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (state.pdfDoc) openDocInfoModal();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '0') {
+        e.preventDefault();
+        if (state.pdfDoc) { state.fitWidth = true; renderCurrentPage(true); }
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '1') {
+        e.preventDefault();
+        if (state.pdfDoc) { state.fitWidth = false; state.zoom = 1.0; renderCurrentPage(false); }
         return;
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -2442,6 +2949,7 @@
         return;
       }
       if (e.key === 'Escape') {
+        closeMoreMenu();
         document.querySelectorAll('.modal-backdrop:not([hidden])').forEach((m) => closeModal(m));
         if (!el.searchBar.hidden) el.btnSearchClose.click();
         setTool('select');
@@ -2449,6 +2957,13 @@
       }
 
       if (typing || !state.pdfDoc) return;
+
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        state.spaceDown = true;
+        el.deskViewport.classList.add('panning');
+        return;
+      }
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (state.selectedId) { e.preventDefault(); deleteSelected(); }

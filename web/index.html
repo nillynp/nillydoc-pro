@@ -53,8 +53,6 @@
           <span class="hide-xs">Εικόνες → PDF</span>
           <span class="show-xs">Img→PDF</span>
         </button>
-        <button id="btnMergePdf" class="text-btn desktop-only" title="Προσθήκη & ένωση άλλου PDF" hidden>+ Ένωση</button>
-        <button id="btnSplitPdf" class="text-btn desktop-only" title="Εξαγωγή επιλεγμένων σελίδων" hidden>Split</button>
         <button id="btnSearchToggle" class="icon-btn" title="Αναζήτηση κειμένου (Ctrl+F)" hidden>
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><line x1="20" y1="20" x2="16.65" y2="16.65"/></svg>
         </button>
@@ -62,6 +60,21 @@
           <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           <span id="badgeComments" class="count-badge" hidden>0</span>
         </button>
+        <div class="menu-anchor" id="moreMenuWrap" hidden>
+          <button id="btnMoreMenu" class="icon-btn" title="Εργαλεία PDF (Ένωση, Split, Υδατογράφημα, Αρίθμηση, mm)" aria-label="Περισσότερα">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+          </button>
+          <div id="moreMenu" class="popover-menu" hidden>
+            <button class="menu-item" id="btnMergePdf"><span>+ Ένωση με άλλο PDF</span><em>Merge</em></button>
+            <button class="menu-item" id="btnSplitPdf"><span>Εξαγωγή Σελίδων</span><em>Split</em></button>
+            <div class="menu-sep"></div>
+            <button class="menu-item" id="btnWatermarkOpen"><span>Υδατογράφημα (όλες οι σελ.)</span><em>Proof</em></button>
+            <button class="menu-item" id="btnPageNumsOpen"><span>Αρίθμηση Σελίδων</span><em>1 / N</em></button>
+            <button class="menu-item" id="btnExportImgsOpen"><span>Εξαγωγή σε Εικόνες</span><em>PNG/JPG</em></button>
+            <div class="menu-sep"></div>
+            <button class="menu-item" id="btnDocInfoOpen"><span>Ιδιότητες &amp; Διαστάσεις (mm)</span><em>Ctrl+D</em></button>
+          </div>
+        </div>
         <button id="btnSaveOpen" class="primary-btn" title="Αποθήκευση / Συμπίεση PDF (Ctrl+S)" hidden>Αποθήκευση</button>
         <button id="btnThemeToggle" class="icon-btn" title="Εναλλαγή Dark / Light">◐</button>
       </div>
@@ -144,6 +157,7 @@
           <option value="30">30</option>
           <option value="42">42</option>
         </select>
+        <button id="btnTextBg" class="toggle-chip" title="Λευκό φόντο πίσω από το κείμενο (καλύπτει παλιό κείμενο)">BG</button>
       </div>
 
       <div class="tool-divider"></div>
@@ -200,6 +214,7 @@
           <div id="pageStage" class="page-stage">
             <canvas id="pdfCanvas"></canvas>
             <canvas id="annoCanvas"></canvas>
+            <div id="textLayer" class="text-layer"></div>
             <div id="pinLayer" class="pin-layer"></div>
           </div>
         </div>
@@ -433,6 +448,137 @@
       <div class="modal-foot">
         <button class="secondary-btn" data-close="modalPrompt">Ακύρωση</button>
         <button id="btnPromptOk" class="primary-btn">Εφαρμογή</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 7: WATERMARK (ALL PAGES — PROOF / CLIENT PREVIEW) -->
+  <div id="modalWatermark" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Υδατογράφημα (Watermark)</h2>
+          <p class="modal-sub">Εφαρμόζεται καθαρά σε όλες τις σελίδες του PDF</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalWatermark">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field-label" for="inpWmText">Κείμενο υδατογραφήματος</label>
+        <input id="inpWmText" type="text" class="text-input" value="ΠΡΟΣΧΕΔΙΟ — NILLY GRAPHICS" />
+
+        <div class="sheet-toolbar">
+          <div class="ink-dots" id="wmColors">
+            <button class="ink-dot active" data-color="#64748B" style="--c:#64748B" title="Γκρι"></button>
+            <button class="ink-dot" data-color="#DC2626" style="--c:#DC2626" title="Κόκκινο"></button>
+            <button class="ink-dot" data-color="#2563EB" style="--c:#2563EB" title="Μπλε"></button>
+            <button class="ink-dot" data-color="#111827" style="--c:#111827" title="Μαύρο"></button>
+          </div>
+          <label class="range-inline">
+            <span>Διαφάνεια: <strong id="lblWmOpacity">18%</strong></span>
+            <input id="rngWmOpacity" type="range" min="6" max="55" value="18" />
+          </label>
+        </div>
+
+        <label class="field-label">Θέση</label>
+        <div class="seg-row" id="wmStyleRow">
+          <button class="seg-btn active" data-wmstyle="diag">Διαγώνιο 45°</button>
+          <button class="seg-btn" data-wmstyle="center">Οριζόντιο</button>
+          <button class="seg-btn" data-wmstyle="tile">Επαναλαμβανόμενο</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="btnClearWatermark" class="text-btn">Αφαίρεση</button>
+        <button class="secondary-btn" data-close="modalWatermark">Ακύρωση</button>
+        <button id="btnApplyWatermark" class="primary-btn">Εφαρμογή</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 8: PAGE NUMBERS (ALL PAGES) -->
+  <div id="modalPageNums" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Αρίθμηση Σελίδων</h2>
+          <p class="modal-sub">Αυτόματη αρίθμηση στο κάτω μέρος κάθε σελίδας</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalPageNums">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field-label">Θέση</label>
+        <div class="seg-row" id="pnPosRow">
+          <button class="seg-btn" data-pos="left">Κάτω Αριστερά</button>
+          <button class="seg-btn active" data-pos="center">Κάτω Κέντρο</button>
+          <button class="seg-btn" data-pos="right">Κάτω Δεξιά</button>
+        </div>
+        <label class="field-label">Μορφή</label>
+        <div class="seg-row two" id="pnFmtRow">
+          <button class="seg-btn active" data-fmt="of">1 / 10</button>
+          <button class="seg-btn" data-fmt="num">1</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button id="btnClearPageNums" class="text-btn">Αφαίρεση</button>
+        <button class="secondary-btn" data-close="modalPageNums">Ακύρωση</button>
+        <button id="btnApplyPageNums" class="primary-btn">Εφαρμογή</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 9: EXPORT PAGES TO IMAGES (PNG / JPG) -->
+  <div id="modalExportImgs" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Εξαγωγή Σελίδων σε Εικόνες</h2>
+          <p id="lblExportImgsMeta" class="modal-sub">Εξαγωγή σε υψηλή ανάλυση για WhatsApp, social ή εκτύπωση</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalExportImgs">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="field-label">Ποιες σελίδες</label>
+        <div class="seg-row two" id="expScopeRow">
+          <button class="seg-btn active" data-scope="current">Τρέχουσα σελίδα</button>
+          <button class="seg-btn" data-scope="all">Όλες οι σελίδες</button>
+        </div>
+        <label class="field-label">Μορφή αρχείου</label>
+        <div class="seg-row two" id="expFmtRow">
+          <button class="seg-btn active" data-fmt="png">PNG (Ασυμπίεστο)</button>
+          <button class="seg-btn" data-fmt="jpeg">JPG (Ελαφρύ)</button>
+        </div>
+        <label class="field-label">Ανάλυση (DPI)</label>
+        <div class="seg-row two" id="expDpiRow">
+          <button class="seg-btn" data-dpi="150">150 DPI (Web)</button>
+          <button class="seg-btn active" data-dpi="300">300 DPI (Εκτύπωση)</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalExportImgs">Ακύρωση</button>
+        <button id="btnConfirmExportImgs" class="primary-btn">Εξαγωγή</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 10: PREPRESS DOCUMENT PROPERTIES (mm / cm / pt & Metadata) -->
+  <div id="modalDocInfo" class="modal-backdrop" hidden>
+    <div class="modal-sheet compact">
+      <div class="modal-head">
+        <div>
+          <h2>Ιδιότητες &amp; Διαστάσεις (Prepress)</h2>
+          <p class="modal-sub">Ακριβείς διαστάσεις σελίδας σε mm, cm &amp; pt</p>
+        </div>
+        <button class="icon-btn sm" data-close="modalDocInfo">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="docSpecsGrid" class="specs-grid"></div>
+        <label class="field-label" for="inpMetaTitle">Τίτλος εγγράφου (PDF Title)</label>
+        <input id="inpMetaTitle" type="text" class="text-input" placeholder="π.χ. Προσφορά Λογοτύπου" />
+        <label class="field-label" for="inpMetaAuthor">Δημιουργός (PDF Author)</label>
+        <input id="inpMetaAuthor" type="text" class="text-input" value="Nilly graphics (Sotiris Christos)" />
+      </div>
+      <div class="modal-foot">
+        <button class="secondary-btn" data-close="modalDocInfo">Κλείσιμο</button>
+        <button id="btnSaveDocMeta" class="primary-btn">Ενημέρωση Μεταδεδομένων</button>
       </div>
     </div>
   </div>
