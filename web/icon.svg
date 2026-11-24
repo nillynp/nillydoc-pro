@@ -1,20 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
   <defs>
-    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#FFFFFF"/>
-      <stop offset="100%" stop-color="#ECF0F6"/>
-    </linearGradient>
-    <linearGradient id="redband" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#EF2D2D"/>
-      <stop offset="100%" stop-color="#C21818"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2C2E27"/>
+      <stop offset="100%" stop-color="#1C1E1A"/>
     </linearGradient>
   </defs>
-  <path d="M13.5 4h26.5l14 14v38.5a3.5 3.5 0 0 1-3.5 3.5h-37a3.5 3.5 0 0 1-3.5-3.5v-49A3.5 3.5 0 0 1 13.5 4z" fill="url(#paper)" stroke="#C3CCDA" stroke-width="1.2"/>
-  <path d="M40 4l14 14h-11.5a2.5 2.5 0 0 1-2.5-2.5V4z" fill="#CBD5E1"/>
-  <rect x="15.5" y="12" width="6.5" height="2.6" rx="0.6" fill="#2563EB"/>
-  <rect x="24" y="12" width="11.5" height="2.6" rx="0.6" fill="#C4CDDB"/>
-  <rect x="15.5" y="18" width="23.5" height="2.3" rx="0.6" fill="#C4CDDB"/>
-  <rect x="15.5" y="23.5" width="31" height="2.3" rx="0.6" fill="#C4CDDB"/>
-  <rect x="5" y="32" width="54" height="19.5" rx="3.5" fill="url(#redband)"/>
-  <text x="32" y="46.2" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-weight="800" font-size="14" fill="#FFFFFF" letter-spacing="0.4">PDF</text>
+  <rect x="8.8" y="8.8" width="110.4" height="110.4" rx="24" fill="url(#bg)" stroke="#FC961F" stroke-width="6.1"/>
+  <path d="M36 28h36l20 20v50a6 6 0 0 1-6 6H36a6 6 0 0 1-6-6V34a6 6 0 0 1 6-6z" fill="#181A17" stroke="#66D9EF" stroke-width="4.5" stroke-linejoin="round"/>
+  <path d="M72 28v16a4 4 0 0 0 4 4h16" fill="none" stroke="#66D9EF" stroke-width="4.5" stroke-linejoin="round"/>
+  <rect x="38" y="54" width="38" height="14" rx="4" fill="#F92672"/>
+  <line x1="40" y1="80" x2="82" y2="80" stroke="#A6E22E" stroke-width="5.5" stroke-linecap="round"/>
+  <line x1="40" y1="92" x2="68" y2="92" stroke="#66D9EF" stroke-width="5.5" stroke-linecap="round"/>
 </svg>

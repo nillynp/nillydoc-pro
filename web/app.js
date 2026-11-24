@@ -371,7 +371,7 @@
       setStatus('Φόρτωση PDF…');
       const copy = new Uint8Array(bytes);
       // ALWAYS pass a fresh slice so pdf.js worker transfer never detaches state.pdfBytes!
-      const loadingTask = window.pdfjsLib.getDocument({ data: copy.slice() });
+      const loadingTask = window.pdfjsLib.getDocument({ isEvalSupported: false, data: copy.slice() });
       const doc = await loadingTask.promise;
 
       state.pdfBytes = copy;

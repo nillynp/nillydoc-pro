@@ -10,8 +10,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $exePath = Join-Path $root 'NillyDocPro.exe'
-$icoPath = Join-Path $root 'NillyDocPDF.ico'
-if (-not (Test-Path $icoPath)) { $icoPath = Join-Path $root 'NillyDocPro.ico' }
+$icoPath = Join-Path $root 'NillyDocPro.ico'
 $srcPath = Join-Path $root 'desktop\NillyDocPro.cs'
 
 Write-Host ''

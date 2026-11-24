@@ -81,3 +81,9 @@
 - **Δημιουργός:** **created by [Nilly graphics (Sotiris Christos)](https://nillygraphics.com/)**
 - **Άδεια:** MIT License
 - **Offline Open-Source PDF Engines:** `pdf.js` (Apache-2.0) & `pdf-lib` (MIT), ενσωματωμένα τοπικά στον φάκελο `web/vendor/`.
+
+
+## Third-party libraries
+
+- PDF.js 3.11.174 — [Apache License 2.0](web/vendor/LICENSE-pdfjs.txt). JavaScript evaluation is disabled in the PDF loader.
+- pdf-lib 1.17.1 — [MIT License](web/vendor/LICENSE-pdf-lib.md).
