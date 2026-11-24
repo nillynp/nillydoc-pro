@@ -56,7 +56,7 @@
 
 ## Εγκατάσταση στα Windows 11 (Προεπιλεγμένο Πρόγραμμα για `.pdf`)
 
-1. Κατέβασε το `NillyDoc-Pro-v1.0-Portable.zip` από τα [GitHub Releases](https://github.com/nillynp/nillydoc-pro/releases) και αποσυμπίεσέ το (π.χ. `C:\Tools\NillyDocPro`).
+1. Κατέβασε το `NillyDoc-Pro-v1.2-Portable.zip` από τα [GitHub Releases](https://github.com/nillynp/nillydoc-pro/releases) και αποσυμπίεσέ το (π.χ. `C:\Tools\NillyDocPro`).
 2. Τρέξε με διπλό κλικ το **`Install_NillyDocPro.bat`** (δεν απαιτεί δικαιώματα Administrator!).
    - Μεταγλωττίζει αυτόματα το ultra-light `NillyDocPro.exe` (~25 KB, zero Electron).
    - Εγγράφει το **NillyDoc Pro** στα Windows για αρχεία `.pdf` και δημιουργεί συντομεύσεις σε Desktop & Start Menu.
