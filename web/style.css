@@ -920,8 +920,15 @@ button {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 26px 24px 48px;
+  padding: 24px 24px 56px;
   min-width: fit-content;
+}
+
+.pages-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
 }
 
 .page-stage {
@@ -933,13 +940,13 @@ button {
   flex-shrink: 0;
 }
 
-#pdfCanvas {
+.pdf-canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-#annoCanvas {
+.anno-canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -947,18 +954,18 @@ button {
   z-index: 2;
   touch-action: pan-x pan-y;
 }
-#annoCanvas.drawing-mode {
+.anno-canvas.drawing-mode {
   touch-action: none;
   cursor: crosshair;
 }
-#annoCanvas.text-mode {
+.anno-canvas.text-mode {
   cursor: text;
 }
-#annoCanvas.move-mode {
+.anno-canvas.move-mode {
   cursor: default;
 }
 
-/* Native Acrobat-Style Selectable PDF Text Layer */
+/* Native Acrobat-Style Selectable & Click-to-Edit PDF Text Layer */
 .text-layer {
   position: absolute;
   inset: 0;
@@ -973,12 +980,25 @@ button {
   user-select: text;
   cursor: text;
 }
+.text-layer.text-edit-mode {
+  pointer-events: auto;
+  user-select: none;
+  cursor: text;
+}
 .text-layer span {
   position: absolute;
   color: transparent;
   white-space: pre;
   transform-origin: 0% 0%;
   cursor: text;
+}
+.text-layer.text-edit-mode span {
+  border-radius: 2px;
+  transition: background 90ms ease, outline 90ms ease;
+}
+.text-layer.text-edit-mode span:hover {
+  background: rgba(37, 99, 235, 0.14);
+  outline: 1px dashed rgba(37, 99, 235, 0.75);
 }
 .text-layer span::selection {
   background: rgba(37, 99, 235, 0.30);
@@ -989,6 +1009,37 @@ button {
   position: absolute;
   inset: 0;
   z-index: 4;
+  pointer-events: none;
+}
+
+/* WYSIWYG Acrobat-Style Direct Inline Text Editor right on the PDF page! */
+.inline-editor {
+  position: absolute;
+  z-index: 12;
+  min-width: 80px;
+  min-height: 24px;
+  padding: 2px 5px;
+  margin: 0;
+  border: 1.5px solid #2563EB;
+  border-radius: 3px;
+  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.28);
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  white-space: pre;
+  line-height: 1.28;
+  font-family: "Segoe UI", -apple-system, Arial, sans-serif;
+  user-select: text;
+  cursor: text;
+}
+
+.page-badge {
+  position: absolute;
+  right: 8px;
+  bottom: -19px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 
@@ -1649,17 +1700,20 @@ button {
  * CLEAN PRINT OUTPUT
  * ============================================================================ */
 @media print {
-  .topbar, .tool-strip, .search-bar, .side-rail, .studio-footer, .modal-backdrop, .toast {
+  .topbar, .tool-strip, .search-bar, .side-rail, .studio-footer, .modal-backdrop, .toast, .page-badge, .inline-editor {
     display: none !important;
   }
-  html, body, .app-shell, .workspace, .desk, .stage-wrap {
+  html, body, .app-shell, .workspace, .desk, .stage-wrap, .pages-container {
     height: auto !important;
     overflow: visible !important;
     background: #FFFFFF !important;
     padding: 0 !important;
     margin: 0 !important;
+    gap: 0 !important;
   }
   .page-stage {
     box-shadow: none !important;
+    page-break-after: always;
+    break-after: page;
   }
 }

@@ -21,8 +21,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("Nilly graphics (Sotiris Christos) — https://nillygraphics.com/")]
 [assembly: AssemblyProduct("NillyDoc Pro")]
 [assembly: AssemblyCopyright("Copyright (c) Nilly graphics (Sotiris Christos)")]
-[assembly: AssemblyVersion("1.2.0.0")]
-[assembly: AssemblyFileVersion("1.2.0.0")]
+[assembly: AssemblyVersion("1.3.0.0")]
+[assembly: AssemblyFileVersion("1.3.0.0")]
 
 namespace NillyDocPro
 {
@@ -159,7 +159,7 @@ namespace NillyDocPro
                 else
                 {
                     DateTime started = new DateTime(Interlocked.Read(ref _startTicks), DateTimeKind.Utc);
-                    if ((now - started).TotalSeconds >= (testServerMode ? 30.0 : 45.0))
+                    if ((now - started).TotalSeconds >= (testServerMode ? 120.0 : 45.0))
                     {
                         _running = false;
                         break;

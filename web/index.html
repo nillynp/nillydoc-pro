@@ -151,12 +151,17 @@
           <button class="ink-dot" data-color="#FFFFFF" style="--c:#FFFFFF" title="Λευκό"></button>
         </div>
         <select id="selStrokeSize" class="mini-select" title="Μέγεθος γραμματοσειράς / γραμμής">
+          <option value="10">10</option>
           <option value="12">12</option>
+          <option value="14">14</option>
           <option value="16" selected>16</option>
+          <option value="18">18</option>
           <option value="22">22</option>
-          <option value="30">30</option>
-          <option value="42">42</option>
+          <option value="28">28</option>
+          <option value="36">36</option>
+          <option value="48">48</option>
         </select>
+        <button id="btnTextBold" class="toggle-chip active" title="Έντονα (Bold)">B</button>
         <button id="btnTextBg" class="toggle-chip" title="Λευκό φόντο πίσω από το κείμενο (καλύπτει παλιό κείμενο)">BG</button>
       </div>
 
@@ -209,14 +214,9 @@
           </div>
         </div>
 
-        <!-- LIVE PDF PAGE STAGE -->
+        <!-- CONTINUOUS MULTI-PAGE PDF STAGE -->
         <div id="stageWrap" class="stage-wrap" hidden>
-          <div id="pageStage" class="page-stage">
-            <canvas id="pdfCanvas"></canvas>
-            <canvas id="annoCanvas"></canvas>
-            <div id="textLayer" class="text-layer"></div>
-            <div id="pinLayer" class="pin-layer"></div>
-          </div>
+          <div id="pagesContainer" class="pages-container"></div>
         </div>
       </section>
 
