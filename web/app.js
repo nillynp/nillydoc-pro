@@ -2831,6 +2831,11 @@
   async function initDesktopBridge() {
     if (!DESKTOP_MODE || !SESSION_TOKEN) return;
     el.btnSaveAsDesktop.hidden = false;
+    const btnRev = $('btnRevealPdf');
+    if (btnRev) btnRev.hidden = false;
+    fetch(`/api/suite-theme?t=${encodeURIComponent(SESSION_TOKEN)}`).then((r) => r.status === 200 ? r.text() : '').then((th) => {
+      if (th === 'light' || th === 'dark') applyTheme(th);
+    }).catch(() => {});
     const ping = () => fetch(`/api/heartbeat?t=${encodeURIComponent(SESSION_TOKEN)}`, { method: 'POST', keepalive: true }).catch(() => {});
     ping(); setInterval(ping, 2500);
     window.addEventListener('beforeunload', () => { try { navigator.sendBeacon(`/api/bye?t=${encodeURIComponent(SESSION_TOKEN)}`); } catch (_) {} });
@@ -2937,6 +2942,37 @@
       openModal(el.modalExportImgs);
     });
     el.btnDocInfoOpen.addEventListener('click', () => { closeMoreMenu(); openDocInfoModal(); });
+    const btnRevPdf = $('btnRevealPdf');
+    if (btnRevPdf) {
+      btnRevPdf.addEventListener('click', () => {
+        closeMoreMenu();
+        if (DESKTOP_MODE && SESSION_TOKEN)
+          fetch(`/api/reveal?t=${encodeURIComponent(SESSION_TOKEN)}`, { method: 'POST' }).catch(() => {});
+      });
+    }
+    const btnSendNote = $('btnSendSpecsNote');
+    if (btnSendNote) {
+      btnSendNote.addEventListener('click', async () => {
+        if (!state.pdfDoc) return;
+        const wMm = (state.pageBaseW * 25.4) / 72, hMm = (state.pageBaseH * 25.4) / 72;
+        const txt = [
+          '=== NillyDoc Pro — Prepress PDF Specs ===',
+          `Αρχείο: ${state.fileName || 'document.pdf'}`,
+          `Σελίδες: ${state.pageCount}  |  Μέγεθος: ${formatBytes(state.pdfBytes.byteLength)}`,
+          `Διαστάσεις: ${wMm.toFixed(1)} × ${hMm.toFixed(1)} mm (${(wMm / 10).toFixed(1)} × ${(hMm / 10).toFixed(1)} cm · ${Math.round(state.pageBaseW)}×${Math.round(state.pageBaseH)} pt)`,
+          `Μορφή: ${detectPaperFormat(wMm, hMm)}`,
+          `Τίτλος: ${el.inpMetaTitle.value || '—'}  |  Δημιουργός: ${el.inpMetaAuthor.value || '—'}`,
+          'created by Nilly graphics (Sotiris Christos) — nillygraphics.com'
+        ].join('\r\n');
+        if (DESKTOP_MODE && SESSION_TOKEN) {
+          try {
+            const r = await fetch(`/api/send-note?t=${encodeURIComponent(SESSION_TOKEN)}`, { method: 'POST', body: txt });
+            if (r.status === 200) { showToast('↗ Τα Prepress Specs εστάλησαν στο NillyNote Pro!'); return; }
+          } catch (_) {}
+        }
+        try { await navigator.clipboard.writeText(txt); showToast('✓ Αντιγράφηκαν τα Prepress Specs στο πρόχειρο'); } catch (_) {}
+      });
+    }
 
     el.fileOpenPdf.addEventListener('change', async (e) => {
       const f = e.target.files[0]; if (f) await loadPdfBytes(new Uint8Array(await f.arrayBuffer()), f.name, { hasDiskPath: false });

@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("Nilly graphics (Sotiris Christos) — https://nillygraphics.com/")]
 [assembly: AssemblyProduct("NillyDoc Pro")]
 [assembly: AssemblyCopyright("Copyright (c) Nilly graphics (Sotiris Christos)")]
-[assembly: AssemblyVersion("1.5.1.0")]
-[assembly: AssemblyFileVersion("1.5.1.0")]
+[assembly: AssemblyVersion("1.5.2.0")]
+[assembly: AssemblyFileVersion("1.5.2.0")]
 
 namespace NillyDocPro
 {
@@ -619,7 +619,83 @@ namespace NillyDocPro
                 return;
             }
 
+            if (string.Equals(req.Path, "/api/reveal", StringComparison.OrdinalIgnoreCase) && req.Method == "POST")
+            {
+                string target;
+                lock (_fileLock) { target = _currentFilePath; }
+                if (!string.IsNullOrEmpty(target) && File.Exists(target))
+                {
+                    string filesExe = FindSiblingExe("NillyFilesPro", "NillyFilesPro.exe");
+                    if (filesExe != null)
+                        try { Process.Start(new ProcessStartInfo(filesExe, "\"" + Path.GetDirectoryName(target) + "\"") { WorkingDirectory = Path.GetDirectoryName(filesExe), UseShellExecute = true }); } catch { }
+                    else
+                        try { Process.Start("explorer.exe", "/select,\"" + target + "\""); } catch { }
+                }
+                SendResponse(stream, 204, "No Content", null, null, null);
+                return;
+            }
+
+            if (string.Equals(req.Path, "/api/send-note", StringComparison.OrdinalIgnoreCase) && req.Method == "POST")
+            {
+                string txt = (req.Body != null && req.Body.Length > 0) ? Encoding.UTF8.GetString(req.Body) : "";
+                string noteExe = FindSiblingExe("NillyNotePro", "NillyNotePro.exe");
+                if (noteExe != null && !string.IsNullOrEmpty(txt))
+                {
+                    try
+                    {
+                        string tmp = Path.Combine(Path.GetTempPath(), "NillyDoc_Prepress_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt");
+                        File.WriteAllText(tmp, txt, new UTF8Encoding(false));
+                        Process.Start(new ProcessStartInfo(noteExe, "\"" + tmp + "\"") { WorkingDirectory = Path.GetDirectoryName(noteExe), UseShellExecute = true });
+                        SendResponse(stream, 200, "OK", "text/plain", Encoding.ASCII.GetBytes("NOTE"), null);
+                        return;
+                    }
+                    catch { }
+                }
+                SendResponse(stream, 204, "No Content", null, null, null);
+                return;
+            }
+
+            if (string.Equals(req.Path, "/api/suite-theme", StringComparison.OrdinalIgnoreCase))
+            {
+                string th = ReadSuiteTheme();
+                if (!string.IsNullOrEmpty(th)) SendResponse(stream, 200, "OK", "text/plain", Encoding.ASCII.GetBytes(th), null);
+                else SendResponse(stream, 204, "No Content", null, null, null);
+                return;
+            }
+
             SendResponse(stream, 404, "Not Found", "text/plain", Encoding.ASCII.GetBytes("Not found"), null);
+        }
+
+        private static string FindSiblingExe(string folder, string exeName)
+        {
+            try
+            {
+                string appData = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NillySuite\" + folder + @"\" + exeName);
+                if (File.Exists(appData)) return appData;
+                DirectoryInfo par = Directory.GetParent(AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\'));
+                if (par != null)
+                {
+                    string sib = Path.Combine(Path.Combine(par.FullName, folder), exeName);
+                    if (File.Exists(sib)) return sib;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        private static string ReadSuiteTheme()
+        {
+            try
+            {
+                string p = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"NillySuite\suite.theme");
+                if (File.Exists(p))
+                {
+                    string s = File.ReadAllText(p, Encoding.ASCII).Trim().ToLowerInvariant();
+                    if (s == "light" || s == "dark") return s;
+                }
+            }
+            catch { }
+            return null;
         }
 
         private static void HandleSaveAs(TcpClient client, NetworkStream stream, HttpRequest req)
