@@ -728,8 +728,8 @@ button {
   border-color: var(--accent);
 }
 .thumb-item.active-mate {
-  background: rgba(37, 99, 235, 0.10);
-  border-color: rgba(37, 99, 235, 0.62);
+  background: rgba(252, 150, 31, 0.10);
+  border-color: rgba(252, 150, 31, 0.62);
 }
 
 .thumb-canvas-wrap {
@@ -1045,18 +1045,18 @@ button {
 .text-layer.edit-all-mode .edit-line {
   display: block;
   outline: 1px dashed rgba(59, 130, 246, 0.42);
-  background: rgba(59, 130, 246, 0.04);
+  background: rgba(252, 150, 31, 0.05);
 }
 .text-layer.text-edit-mode .edit-line {
   display: block;
 }
 .text-layer.edit-all-mode .edit-line:hover,
 .text-layer.text-edit-mode .edit-line:hover {
-  background: rgba(37, 99, 235, 0.16);
-  outline: 1.5px solid #2563EB;
+  background: rgba(252, 150, 31, 0.16);
+  outline: 1.5px solid var(--accent);
 }
 .text-layer span::selection {
-  background: rgba(37, 99, 235, 0.30);
+  background: rgba(252, 150, 31, 0.30);
   color: transparent;
 }
 
@@ -1075,9 +1075,9 @@ button {
   min-height: 24px;
   padding: 2px 5px;
   margin: 0;
-  border: 1.5px solid #2563EB;
+  border: 1.5px solid var(--accent);
   border-radius: 3px;
-  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.28);
+  box-shadow: 0 4px 18px rgba(252, 150, 31, 0.28);
   outline: none;
   resize: none;
   overflow: hidden;

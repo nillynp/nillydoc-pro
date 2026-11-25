@@ -85,7 +85,7 @@ Set-ItemProperty -Path 'HKCU:\Software\RegisteredApplications' -Name 'NillyDocPr
 # Notify Windows Explorer to refresh file associations immediately
 try {
     Add-Type -Namespace NillyShell -Name Notify -MemberDefinition '[System.Runtime.InteropServices.DllImport("shell32.dll")] public static extern void SHChangeNotify(int wEventId, int uFlags, System.IntPtr dwItem1, System.IntPtr dwItem2);' -ErrorAction SilentlyContinue
-    [NillyShell.Notify]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)
+    [NillyShell.Notify]::SHChangeNotify(0x08000000, 0x2000, [IntPtr]::Zero, [IntPtr]::Zero)
 } catch {}
 
 Write-Host '        OK -> Το NillyDoc Pro εμφανίζεται πλέον στο "Άνοιγμα με..." και στις Προεπιλεγμένες Εφαρμογές!' -ForegroundColor Green
