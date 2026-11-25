@@ -21,8 +21,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("Nilly graphics (Sotiris Christos) — https://nillygraphics.com/")]
 [assembly: AssemblyProduct("NillyDoc Pro")]
 [assembly: AssemblyCopyright("Copyright (c) Nilly graphics (Sotiris Christos)")]
-[assembly: AssemblyVersion("1.3.0.0")]
-[assembly: AssemblyFileVersion("1.3.0.0")]
+[assembly: AssemblyVersion("1.4.0.0")]
+[assembly: AssemblyFileVersion("1.4.0.0")]
 
 namespace NillyDocPro
 {

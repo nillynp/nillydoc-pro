@@ -35,6 +35,8 @@
     currentPage: 1,          // 1-based page closest to viewport center
     zoom: 1,
     fitWidth: true,
+    viewMode: 'single',      // 'single' | 'spread' (Two-Page Facing Spread!)
+    spreadCover: true,       // Page 1 solo cover (1 | 2-3 | 4-5) when in spread mode
     pageBaseW: 595.28,
     pageBaseH: 841.89,
 
@@ -129,6 +131,9 @@
     btnZoomIn: $('btnZoomIn'),
     btnZoomFit: $('btnZoomFit'),
     lblZoom: $('lblZoom'),
+    btnViewSingle: $('btnViewSingle'),
+    btnViewSpread: $('btnViewSpread'),
+    btnSpreadCover: $('btnSpreadCover'),
     btnOpenPdf: $('btnOpenPdf'),
     btnImgsToPdf: $('btnImgsToPdf'),
     btnMergePdf: $('btnMergePdf'),
@@ -462,8 +467,100 @@
       return clamp(availW / baseW, 0.35, 2.0);
     }
     const availH = Math.max(360, el.deskViewport.clientHeight - 56);
+    if (state.viewMode === 'spread' && state.pageCount > 1) {
+      const fitTwoW = (availW - 14) / (baseW * 2);
+      const fitTwoH = availH / baseH;
+      return clamp(Math.min(fitTwoW, fitTwoH), 0.35, 1.35);
+    }
     const fitPage = Math.min(availW / baseW, availH / baseH);
     return clamp(Math.max(fitPage, Math.min(availW / baseW, 1.05)), 0.45, 1.35);
+  }
+
+  function getSpreadGroups(count = state.pageCount) {
+    const groups = [];
+    if (!count) return groups;
+    if (state.viewMode !== 'spread' || count <= 1) {
+      for (let p = 1; p <= count; p++) groups.push([p]);
+      return groups;
+    }
+    let p = 1;
+    if (state.spreadCover) {
+      groups.push([1]);
+      p = 2;
+    }
+    while (p <= count) {
+      if (p + 1 <= count) { groups.push([p, p + 1]); p += 2; }
+      else { groups.push([p]); p += 1; }
+    }
+    return groups;
+  }
+
+  function getSpreadMatePage(pageNum) {
+    if (state.viewMode !== 'spread' || state.pageCount <= 1) return 0;
+    for (const g of getSpreadGroups()) {
+      if (g.length === 2) {
+        if (g[0] === pageNum) return g[1];
+        if (g[1] === pageNum) return g[0];
+      }
+    }
+    return 0;
+  }
+
+  function layoutPagesIntoContainer() {
+    if (!state.pageViews.length) return;
+    el.pagesContainer.innerHTML = '';
+    const groups = getSpreadGroups();
+    for (const grp of groups) {
+      const row = document.createElement('div');
+      row.className = 'spread-row ' + (grp.length === 2 ? 'two-up' : 'single-row');
+      for (const p of grp) {
+        const v = state.pageViews[p - 1];
+        if (v) row.appendChild(v.stageEl);
+      }
+      el.pagesContainer.appendChild(row);
+    }
+  }
+
+  function updateViewModeUI() {
+    const isSpread = state.viewMode === 'spread';
+    if (el.btnViewSingle) el.btnViewSingle.classList.toggle('active', !isSpread);
+    if (el.btnViewSpread) el.btnViewSpread.classList.toggle('active', isSpread);
+    if (el.btnSpreadCover) {
+      el.btnSpreadCover.hidden = !isSpread || state.pageCount <= 1;
+      el.btnSpreadCover.classList.toggle('active', state.spreadCover);
+    }
+  }
+
+  function setViewMode(mode, cover = state.spreadCover) {
+    state.viewMode = mode === 'spread' ? 'spread' : 'single';
+    state.spreadCover = !!cover;
+    try {
+      localStorage.setItem('nillydoc_viewmode_v1', state.viewMode);
+      localStorage.setItem('nillydoc_spreadcover_v1', state.spreadCover ? '1' : '0');
+    } catch (_) {}
+    updateViewModeUI();
+    if (!state.pdfDoc || !state.pageViews.length) return;
+    const anchorPage = state.currentPage;
+    commitInlineEditor(true);
+    layoutPagesIntoContainer();
+    state.fitWidth = true;
+    rescaleAllPagesForZoom(computeAutoFitZoom(state.pageBaseW, state.pageBaseH));
+    goToPage(anchorPage, false);
+    const mate = getSpreadMatePage(anchorPage);
+    if (mate) ensurePageRendered(mate);
+  }
+
+  function stepPage(delta) {
+    if (!state.pdfDoc) return;
+    if (state.viewMode === 'spread' && state.pageCount > 1) {
+      const groups = getSpreadGroups();
+      let idx = groups.findIndex((g) => g.includes(state.currentPage));
+      if (idx < 0) idx = 0;
+      const nextIdx = clamp(idx + (delta > 0 ? 1 : -1), 0, groups.length - 1);
+      goToPage(groups[nextIdx][0], true);
+      return;
+    }
+    goToPage(state.currentPage + (delta > 0 ? 1 : -1), true);
   }
 
   async function buildAllPageStages(recalcFit = true) {
@@ -544,10 +641,11 @@
       stage.style.height = view.stageH + 'px';
 
       wireStagePointerEvents(view);
-      el.pagesContainer.appendChild(stage);
       state.pageViews.push(view);
     }
 
+    layoutPagesIntoContainer();
+    updateViewModeUI();
     applyToolClassesToAllPages();
 
     // Virtualized IntersectionObserver renders visible + nearby pages seamlessly as you scroll!
@@ -562,8 +660,10 @@
 
     state.pageViews.forEach((v) => state.pageObserver.observe(v.stageEl));
 
-    // Render initial currentPage + next page immediately
+    // Render initial currentPage + spread mate / next page immediately
     await ensurePageRendered(state.currentPage);
+    const mate = getSpreadMatePage(state.currentPage);
+    if (mate) ensurePageRendered(mate);
     if (state.currentPage < state.pageCount) ensurePageRendered(state.currentPage + 1);
   }
 
@@ -670,13 +770,15 @@
     }
   }
 
-  // Native Selectable + Click-to-Edit PDF Text Layer
+  // Native Selectable + Acrobat-Style Merged Click-to-Edit PDF Text Layer
   async function renderTextLayerForPage(view, page, cssVp) {
     view.textLayer.innerHTML = '';
     try {
       const tc = await page.getTextContent();
+      const styles = tc.styles || {};
       const frag = document.createDocumentFragment();
       const measureCtx = document.createElement('canvas').getContext('2d');
+      const rawRuns = [];
 
       for (const it of tc.items) {
         if (!it.str) continue;
@@ -689,16 +791,20 @@
         const leftPx = tx[4];
         const topPx = tx[5] - fontH * 0.88;
         const targetW = (it.width || 0) * cssVp.scale;
+        const estW = targetW > 1 ? targetW : (fontH * it.str.length * 0.55);
 
         span.style.left = leftPx + 'px';
         span.style.top = topPx + 'px';
         span.style.fontSize = fontH + 'px';
         span.style.fontFamily = 'sans-serif';
 
-        // Store normalized PDF box on dataset for instant Acrobat-style click-to-edit!
+        const st = styles[it.fontName] || {};
+        const fnCombo = String(it.fontName || '') + ' ' + String(st.fontFamily || '');
+        const isBold = /bold|semi|heavy|black|demi|med|600|700|800/i.test(fnCombo);
+
         span.dataset.nx = (leftPx / cssVp.width).toFixed(5);
         span.dataset.ny = (topPx / cssVp.height).toFixed(5);
-        span.dataset.nw = ((targetW || fontH * it.str.length * 0.55) / cssVp.width).toFixed(5);
+        span.dataset.nw = (estW / cssVp.width).toFixed(5);
         span.dataset.nh = ((fontH * 1.18) / cssVp.height).toFixed(5);
         span.dataset.fs = String(Math.round((fontH / cssVp.width) * REF_PAGE_WIDTH));
 
@@ -712,7 +818,72 @@
         }
         if (transformStr) span.style.transform = transformStr.trim();
         frag.appendChild(span);
+
+        if (Math.abs(angle) < 0.06 && it.str.trim()) {
+          rawRuns.push({
+            str: it.str,
+            x: leftPx,
+            y: topPx,
+            baseY: tx[5],
+            w: estW,
+            h: fontH,
+            bold: isBold
+          });
+        }
       }
+
+      // Group fragmented Greek/Illustrator PDF spans on the same baseline into complete editable lines!
+      rawRuns.sort((a, b) => (Math.abs(a.baseY - b.baseY) > Math.min(a.h, b.h) * 0.45) ? (a.baseY - b.baseY) : (a.x - b.x));
+      const lines = [];
+      for (const r of rawRuns) {
+        let joined = false;
+        for (let i = lines.length - 1; i >= Math.max(0, lines.length - 4); i--) {
+          const ln = lines[i];
+          const sizeRatio = r.h / ln.h;
+          const sameLine = Math.abs(r.baseY - ln.baseY) <= Math.max(r.h, ln.h) * 0.48;
+          const gap = r.x - (ln.x + ln.w);
+          if (sameLine && sizeRatio >= 0.76 && sizeRatio <= 1.32 && gap >= -ln.h * 0.45 && gap <= ln.h * 1.85) {
+            const needSpace = gap > ln.h * 0.18 && !ln.text.endsWith(' ') && !r.str.startsWith(' ');
+            ln.text += (needSpace ? ' ' : '') + r.str;
+            const newRight = Math.max(ln.x + ln.w, r.x + r.w);
+            ln.x = Math.min(ln.x, r.x);
+            ln.y = Math.min(ln.y, r.y);
+            ln.w = newRight - ln.x;
+            ln.h = Math.max(ln.h, r.h);
+            if (r.bold) ln.bold = true;
+            joined = true;
+            break;
+          }
+        }
+        if (!joined) {
+          lines.push({ text: r.str, x: r.x, y: r.y, baseY: r.baseY, w: r.w, h: r.h, bold: r.bold });
+        }
+      }
+
+      for (const ln of lines) {
+        const cleanTxt = ln.text.replace(/\s+/g, ' ').trim();
+        if (!cleanTxt) continue;
+        const box = document.createElement('div');
+        box.className = 'edit-line';
+        const padX = Math.max(2, ln.h * 0.12);
+        const padTop = Math.max(1, ln.h * 0.08);
+        const padBot = Math.max(2, ln.h * 0.24);
+        box.style.left = Math.max(0, ln.x - padX) + 'px';
+        box.style.top = Math.max(0, ln.y - padTop) + 'px';
+        box.style.width = Math.min(cssVp.width, ln.w + padX * 2) + 'px';
+        box.style.height = (ln.h + padTop + padBot) + 'px';
+        box.title = 'Κλικ για επεξεργασία: ' + cleanTxt;
+
+        box.dataset.text = cleanTxt;
+        box.dataset.nx = (ln.x / cssVp.width).toFixed(5);
+        box.dataset.ny = (ln.y / cssVp.height).toFixed(5);
+        box.dataset.nw = (ln.w / cssVp.width).toFixed(5);
+        box.dataset.nh = ((ln.h * 1.24) / cssVp.height).toFixed(5);
+        box.dataset.fs = String(Math.round((ln.h / cssVp.width) * REF_PAGE_WIDTH));
+        box.dataset.bold = ln.bold ? '1' : '0';
+        frag.appendChild(box);
+      }
+
       view.textLayer.appendChild(frag);
     } catch (_) {}
   }
@@ -721,11 +892,12 @@
     for (const v of state.pageViews) {
       v.annoCanvas.classList.remove('drawing-mode', 'text-mode', 'move-mode');
       if (state.tool === 'select') v.annoCanvas.classList.add('move-mode');
-      else if (state.tool === 'text' || state.tool === 'note') v.annoCanvas.classList.add('text-mode');
+      else if (state.tool === 'text' || state.tool === 'edittext' || state.tool === 'note') v.annoCanvas.classList.add('text-mode');
       else v.annoCanvas.classList.add('drawing-mode');
 
       v.textLayer.classList.toggle('selectable', state.tool === 'select');
       v.textLayer.classList.toggle('text-edit-mode', state.tool === 'text');
+      v.textLayer.classList.toggle('edit-all-mode', state.tool === 'edittext');
     }
   }
 
@@ -761,10 +933,29 @@
   }
 
   function highlightActiveThumb(pageNum) {
+    const mate = getSpreadMatePage(pageNum);
+    let activeNode = null;
     el.thumbList.querySelectorAll('.thumb-item').forEach((node) => {
-      const active = Number(node.dataset.page) === pageNum;
-      node.classList.toggle('active', active);
+      const p = Number(node.dataset.page);
+      const isMain = p === pageNum;
+      const isMate = mate > 0 && p === mate;
+      node.classList.toggle('active', isMain);
+      node.classList.toggle('active-mate', isMate);
+      if (isMain) activeNode = node;
     });
+    // Auto-scroll left thumbnails sidebar smoothly so the active page ALWAYS stays visible!
+    if (activeNode && !el.thumbRail.hidden && el.thumbList.clientHeight > 0) {
+      const list = el.thumbList;
+      const itemTop = activeNode.offsetTop;
+      const itemBot = itemTop + activeNode.offsetHeight;
+      const visTop = list.scrollTop;
+      const visBot = visTop + list.clientHeight;
+      if (itemTop < visTop + 16) {
+        list.scrollTo({ top: Math.max(0, itemTop - 20), behavior: 'smooth' });
+      } else if (itemBot > visBot - 16) {
+        list.scrollTo({ top: itemBot - list.clientHeight + 20, behavior: 'smooth' });
+      }
+    }
   }
 
   function goToPage(num, smooth = true) {
@@ -783,6 +974,8 @@
     const topTarget = Math.max(0, getStageTopInDesk(view) - 16);
     el.deskViewport.scrollTo({ top: topTarget, behavior: smooth ? 'smooth' : 'auto' });
     ensurePageRendered(p);
+    const mate = getSpreadMatePage(p);
+    if (mate) ensurePageRendered(mate);
     setTimeout(() => { state.scrollSyncLock = false; }, smooth ? 350 : 60);
   }
 
@@ -1305,19 +1498,116 @@
   // ==========================================================================
   // WYSIWYG DIRECT INLINE TEXT EDITOR (Acrobat Pro Direct Edit Experience!)
   // ==========================================================================
-  function samplePageBgColor(view, nx, ny) {
+  function rgbHex(r, g, b) {
+    return '#' + [r, g, b].map((c) => clamp(Math.round(c), 0, 255).toString(16).padStart(2, '0')).join('');
+  }
+
+  function sampleTextColors(view, nx, ny, nw, nh) {
     try {
       const cv = view.pdfCanvas;
-      if (!cv.width || !cv.height) return '#FFFFFF';
-      const px = clamp(Math.floor(nx * cv.width) - 2, 0, cv.width - 1);
-      const py = clamp(Math.floor(ny * cv.height) - 2, 0, cv.height - 1);
-      const d = cv.getContext('2d').getImageData(px, py, 1, 1).data;
-      // If sampled pixel is very dark (e.g. hit an ink edge), default cleanly to white paper
-      if (d[0] + d[1] + d[2] < 160) return '#FFFFFF';
-      return '#' + [d[0], d[1], d[2]].map((c) => c.toString(16).padStart(2, '0')).join('');
+      if (!cv.width || !cv.height) return { bg: '#FFFFFF', fg: '#111827' };
+      const ctx = cv.getContext('2d');
+      const x1 = clamp(Math.floor(nx * cv.width), 0, cv.width - 1);
+      const y1 = clamp(Math.floor(ny * cv.height), 0, cv.height - 1);
+      const x2 = clamp(Math.ceil((nx + nw) * cv.width), x1 + 2, cv.width - 1);
+      const y2 = clamp(Math.ceil((ny + nh) * cv.height), y1 + 2, cv.height - 1);
+      const pad = Math.max(3, Math.round(cv.width * 0.004));
+      const rx1 = clamp(x1 - pad, 0, cv.width - 1);
+      const ry1 = clamp(y1 - pad, 0, cv.height - 1);
+      const rx2 = clamp(x2 + pad, 0, cv.width - 1);
+      const ry2 = clamp(y2 + pad, 0, cv.height - 1);
+
+      const img = ctx.getImageData(rx1, ry1, Math.max(1, rx2 - rx1 + 1), Math.max(1, ry2 - ry1 + 1));
+      const d = img.data, iw = img.width, ih = img.height;
+      const px = (x, y) => {
+        const idx = (clamp(y, 0, ih - 1) * iw + clamp(x, 0, iw - 1)) * 4;
+        return [d[idx], d[idx + 1], d[idx + 2]];
+      };
+
+      // 1. Sample 16-point perimeter ring around the text box -> median RGB matches warm cream/dark/white paper!
+      const ringR = [], ringG = [], ringB = [];
+      const steps = 6;
+      for (let i = 0; i <= steps; i++) {
+        const sx = Math.round((iw - 1) * i / steps);
+        const topC = px(sx, 0), botC = px(sx, ih - 1);
+        ringR.push(topC[0], botC[0]); ringG.push(topC[1], botC[1]); ringB.push(topC[2], botC[2]);
+      }
+      const midY = Math.round(ih / 2);
+      const lC = px(0, midY), rC = px(iw - 1, midY);
+      ringR.push(lC[0], rC[0]); ringG.push(lC[1], rC[1]); ringB.push(lC[2], rC[2]);
+
+      const med = (arr) => { arr.sort((a, b) => a - b); return arr[Math.floor(arr.length / 2)]; };
+      const bgR = med(ringR), bgG = med(ringG), bgB = med(ringB);
+
+      // 2. Sample interior pixels furthest from background -> exact ink color (dark charcoal, white, brand hue!)
+      const candidates = [];
+      const stepX = Math.max(1, Math.floor((x2 - x1) / 36));
+      const stepY = Math.max(1, Math.floor((y2 - y1) / 14));
+      for (let yy = y1 - ry1; yy <= y2 - ry1; yy += stepY) {
+        for (let xx = x1 - rx1; xx <= x2 - rx1; xx += stepX) {
+          const c = px(xx, yy);
+          const dist = Math.hypot(c[0] - bgR, c[1] - bgG, c[2] - bgB);
+          if (dist > 45) candidates.push({ dist, c });
+        }
+      }
+      let fgHex = (bgR + bgG + bgB > 360) ? '#111827' : '#FFFFFF';
+      if (candidates.length >= 3) {
+        candidates.sort((a, b) => b.dist - a.dist);
+        const topK = candidates.slice(0, Math.max(3, Math.floor(candidates.length * 0.25)));
+        let sr = 0, sg = 0, sb = 0;
+        for (const it of topK) { sr += it.c[0]; sg += it.c[1]; sb += it.c[2]; }
+        fgHex = rgbHex(sr / topK.length, sg / topK.length, sb / topK.length);
+      }
+      return { bg: rgbHex(bgR, bgG, bgB), fg: fgHex };
     } catch (_) {
-      return '#FFFFFF';
+      return { bg: '#FFFFFF', fg: '#111827' };
     }
+  }
+
+  function openPdfLineEditor(view, lineEl) {
+    const nx = parseFloat(lineEl.dataset.nx);
+    const ny = parseFloat(lineEl.dataset.ny);
+    const nw = parseFloat(lineEl.dataset.nw) || 0.14;
+    const nh = parseFloat(lineEl.dataset.nh) || 0.026;
+    const estFs = clamp(parseInt(lineEl.dataset.fs, 10) || state.strokeSize, 8, 72);
+    const isBold = lineEl.dataset.bold === '1';
+    const sampled = sampleTextColors(view, nx, ny, nw, nh);
+
+    // Sync toolbar size & bold controls to the clicked PDF line so tweaking is seamless!
+    state.textBold = isBold;
+    el.btnTextBold.classList.toggle('active', isBold);
+    const padX = 0.004;
+    const padTop = nh * 0.10;
+    const padBot = nh * 0.22;
+
+    openInlineEditor({
+      pageIdx: view.pageIdx,
+      initialText: lineEl.dataset.text || lineEl.textContent || '',
+      x: nx,
+      y: ny,
+      size: estFs,
+      color: sampled.fg,
+      bold: isBold,
+      bg: sampled.bg,
+      coverBox: {
+        x: Math.max(0, nx - padX),
+        y: Math.max(0, ny - padTop),
+        w: Math.min(1 - Math.max(0, nx - padX), nw + padX * 2),
+        h: nh + padTop + padBot
+      }
+    });
+  }
+
+  function findEditLineAt(view, nx, ny) {
+    const lines = view.textLayer.querySelectorAll('.edit-line');
+    for (const ln of lines) {
+      const lx = parseFloat(ln.dataset.nx), ly = parseFloat(ln.dataset.ny);
+      const lw = parseFloat(ln.dataset.nw), lh = parseFloat(ln.dataset.nh);
+      if (nx >= lx - 0.006 && nx <= lx + lw + 0.006 && ny >= ly - 0.006 && ny <= ly + lh + 0.008) {
+        return ln;
+      }
+    }
+    return null;
   }
 
   function openInlineEditor(opts) {
@@ -1576,7 +1866,8 @@
     if (toolName === 'sign') openSignModal();
     else if (toolName === 'stamp') openModal(el.modalStamp);
     else if (toolName === 'image') { el.fileInsertImg.value = ''; el.fileInsertImg.click(); }
-    else if (toolName === 'text') showToast('Κάνε κλικ σε υπάρχον κείμενο για επεξεργασία ή σε κενό σημείο για νέο κείμενο', 2600);
+    else if (toolName === 'edittext') showToast('Επεξεργασία PDF: Κάνε κλικ σε οποιοδήποτε πλαίσιο κειμένου για άμεση αλλαγή!', 2800);
+    else if (toolName === 'text') showToast('Κάνε κλικ σε κενό σημείο για νέο κείμενο ή σε γραμμή για επεξεργασία', 2400);
   }
 
   function askPrompt(title, initialVal, cb) {
@@ -1653,7 +1944,7 @@
         return;
       }
 
-      if (state.tool === 'text') {
+      if (state.tool === 'text' || state.tool === 'edittext') {
         e.preventDefault();
         // 1. Check if clicking an existing placed text annotation -> edit inline immediately!
         const hitAnno = hitTestAnno(view, pt.x, pt.y);
@@ -1673,26 +1964,10 @@
           return;
         }
 
-        // 2. Acrobat Pro Magic: Click ANY existing PDF text span -> edit IN-PLACE with auto-sampled background cover!
-        const pdfSpan = e.target && e.target.closest && e.target.closest('.text-layer span');
-        if (pdfSpan && pdfSpan.textContent && pdfSpan.textContent.trim()) {
-          const nx = parseFloat(pdfSpan.dataset.nx) || pt.x;
-          const ny = parseFloat(pdfSpan.dataset.ny) || pt.y;
-          const nw = parseFloat(pdfSpan.dataset.nw) || 0.12;
-          const nh = parseFloat(pdfSpan.dataset.nh) || 0.025;
-          const estFs = clamp(parseInt(pdfSpan.dataset.fs, 10) || state.strokeSize, 9, 64);
-          const sampledBg = samplePageBgColor(view, nx, ny);
-          openInlineEditor({
-            pageIdx,
-            initialText: pdfSpan.textContent,
-            x: nx,
-            y: ny,
-            size: estFs,
-            color: '#111827',
-            bold: false,
-            bg: sampledBg,
-            coverBox: { x: nx, y: ny, w: nw, h: nh }
-          });
+        // 2. Acrobat Pro Direct Edit: Click ANY merged existing PDF text line -> edit IN-PLACE with matched bg & ink!
+        const editLine = (e.target && e.target.closest && e.target.closest('.edit-line')) || findEditLineAt(view, pt.x, pt.y);
+        if (editLine) {
+          openPdfLineEditor(view, editLine);
           return;
         }
 
@@ -1853,6 +2128,7 @@
 
     stage.addEventListener('dblclick', (e) => {
       if (!state.pdfDoc) return;
+      if (e.target && e.target.closest && e.target.closest('.inline-editor')) return;
       const pt = getNormPoint(view, e);
       const hit = hitTestAnno(view, pt.x, pt.y);
       if (hit && hit.type === 'text') {
@@ -1866,6 +2142,13 @@
           hit.text = val;
           drawAnnotationsForPage(view.pageIdx);
         });
+      } else {
+        // Double-click ANY existing PDF text line (even in Select mode!) -> instant in-place edit!
+        const editLine = (e.target && e.target.closest && e.target.closest('.edit-line')) || findEditLineAt(view, pt.x, pt.y);
+        if (editLine) {
+          try { window.getSelection().removeAllRanges(); } catch (_) {}
+          openPdfLineEditor(view, editLine);
+        }
       }
     });
   }
@@ -2518,9 +2801,21 @@
       });
     }, { passive: true });
 
-    // Nav & Zoom
-    el.btnPrevPage.addEventListener('click', () => goToPage(state.currentPage - 1, true));
-    el.btnNextPage.addEventListener('click', () => goToPage(state.currentPage + 1, true));
+    // Nav, Zoom & Two-Page Spread View
+    try {
+      const savedVm = localStorage.getItem('nillydoc_viewmode_v1');
+      if (savedVm === 'spread' || savedVm === 'single') state.viewMode = savedVm;
+      const savedCov = localStorage.getItem('nillydoc_spreadcover_v1');
+      if (savedCov === '0' || savedCov === '1') state.spreadCover = savedCov === '1';
+    } catch (_) {}
+    updateViewModeUI();
+
+    if (el.btnViewSingle) el.btnViewSingle.addEventListener('click', () => setViewMode('single'));
+    if (el.btnViewSpread) el.btnViewSpread.addEventListener('click', () => setViewMode('spread'));
+    if (el.btnSpreadCover) el.btnSpreadCover.addEventListener('click', () => setViewMode('spread', !state.spreadCover));
+
+    el.btnPrevPage.addEventListener('click', () => stepPage(-1));
+    el.btnNextPage.addEventListener('click', () => stepPage(1));
     el.inpPageNum.addEventListener('change', () => goToPage(parseInt(el.inpPageNum.value, 10) || 1, true));
     el.btnZoomOut.addEventListener('click', () => { state.fitWidth = false; rescaleAllPagesForZoom(state.zoom - 0.15); });
     el.btnZoomIn.addEventListener('click', () => { state.fitWidth = false; rescaleAllPagesForZoom(state.zoom + 0.15); });
@@ -2930,9 +3225,9 @@
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (state.selectedId) { e.preventDefault(); deleteSelected(); }
       } else if (e.key === 'PageDown') {
-        e.preventDefault(); goToPage(state.currentPage + 1, true);
+        e.preventDefault(); stepPage(1);
       } else if (e.key === 'PageUp') {
-        e.preventDefault(); goToPage(state.currentPage - 1, true);
+        e.preventDefault(); stepPage(-1);
       } else if (e.key === 'ArrowDown') {
         e.preventDefault(); el.deskViewport.scrollBy({ top: 120, behavior: 'smooth' });
       } else if (e.key === 'ArrowUp') {
@@ -2942,8 +3237,10 @@
       } else if (e.key === 'End') {
         e.preventDefault(); goToPage(state.pageCount, true);
       } else if (!mod && !e.altKey) {
+        if (e.code === 'Digit1') { setViewMode('single'); return; }
+        if (e.code === 'Digit2') { setViewMode('spread'); return; }
         const mapped = {
-          KeyV: 'select', KeyT: 'text', KeyW: 'whiteout', KeyN: 'note',
+          KeyV: 'select', KeyE: 'edittext', KeyT: 'text', KeyW: 'whiteout', KeyN: 'note',
           KeyH: 'highlight', KeyP: 'pen', KeyA: 'arrow', KeyR: 'rect',
           KeyS: 'sign', KeyM: 'stamp', KeyI: 'image'
         }[e.code];

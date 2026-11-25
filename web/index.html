@@ -40,7 +40,16 @@
           <button id="btnZoomOut" class="icon-btn sm" title="Σμίκρυνση">−</button>
           <span id="lblZoom" class="zoom-label">100%</span>
           <button id="btnZoomIn" class="icon-btn sm" title="Μεγέθυνση">+</button>
-          <button id="btnZoomFit" class="text-btn sm" title="Προσαρμογή σε πλάτος">Fit</button>
+          <button id="btnZoomFit" class="text-btn sm" title="Προσαρμογή σε οθόνη">Fit</button>
+        </div>
+        <div class="pill-group" id="viewModeGroup">
+          <button id="btnViewSingle" class="icon-btn sm active" title="Μονή σελίδα (1)" aria-label="Μονή σελίδα">
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="3" width="12" height="18" rx="1.5"/></svg>
+          </button>
+          <button id="btnViewSpread" class="icon-btn sm" title="Διπλή σελίδα δίπλα-δίπλα / Spread (2)" aria-label="Διπλή σελίδα">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="9" height="16" rx="1"/><rect x="13" y="4" width="9" height="16" rx="1"/></svg>
+          </button>
+          <button id="btnSpreadCover" class="text-btn sm active" title="Σελίδα 1 μόνη ως Εξώφυλλο (1 | 2-3 | 4-5)" hidden>Εξώφ.</button>
         </div>
       </div>
 
@@ -92,11 +101,15 @@
     <!-- STUDIO TOOL STRIP (Desktop sub-bar / Mobile bottom dock!) -->
     <nav id="toolStrip" class="tool-strip" hidden aria-label="Εργαλεία επεξεργασίας">
       <div class="tool-group">
-        <button class="tool-btn active" data-tool="select" title="Επιλογή / Μετακίνηση (V)">
+        <button class="tool-btn active" data-tool="select" title="Επιλογή / Μετακίνηση / Διπλό κλικ για αλλαγή κειμένου (V)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-7 1.5L9 21z"/></svg>
           <span>Επιλογή</span>
         </button>
-        <button class="tool-btn" data-tool="text" title="Προσθήκη Κειμένου — Ελληνικά & Αγγλικά (T)">
+        <button class="tool-btn" data-tool="edittext" title="Επεξεργασία υπαρχόντων κειμένων PDF — κλικ σε οποιαδήποτε γραμμή (E)">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <span>Επεξεργασία</span>
+        </button>
+        <button class="tool-btn" data-tool="text" title="Προσθήκη Νέου Κειμένου — Ελληνικά & Αγγλικά (T)">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
           <span>Κείμενο</span>
         </button>

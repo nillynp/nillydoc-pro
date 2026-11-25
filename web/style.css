@@ -725,6 +725,10 @@ button {
   background: var(--accent-soft);
   border-color: var(--accent);
 }
+.thumb-item.active-mate {
+  background: rgba(37, 99, 235, 0.10);
+  border-color: rgba(37, 99, 235, 0.62);
+}
 
 .thumb-canvas-wrap {
   width: 128px;
@@ -928,7 +932,34 @@ button {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 22px;
+  gap: 24px;
+}
+
+.spread-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+}
+.spread-row.single-row {
+  gap: 0;
+}
+.spread-row.two-up .page-stage:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  box-shadow: -8px 14px 32px rgba(0, 0, 0, 0.34), inset -1px 0 0 rgba(0, 0, 0, 0.14);
+}
+.spread-row.two-up .page-stage:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: 8px 14px 32px rgba(0, 0, 0, 0.34), inset 1px 0 0 rgba(0, 0, 0, 0.10);
+}
+
+#viewModeGroup .icon-btn.active,
+#viewModeGroup .text-btn.active {
+  background: var(--accent);
+  color: #FFFFFF;
 }
 
 .page-stage {
@@ -985,6 +1016,11 @@ button {
   user-select: none;
   cursor: text;
 }
+.text-layer.edit-all-mode {
+  pointer-events: auto;
+  user-select: none;
+  cursor: text;
+}
 .text-layer span {
   position: absolute;
   color: transparent;
@@ -992,13 +1028,30 @@ button {
   transform-origin: 0% 0%;
   cursor: text;
 }
-.text-layer.text-edit-mode span {
-  border-radius: 2px;
+.text-layer .edit-line {
+  position: absolute;
+  display: none;
+  border-radius: 3px;
+  cursor: text;
+  z-index: 2;
   transition: background 90ms ease, outline 90ms ease;
 }
-.text-layer.text-edit-mode span:hover {
-  background: rgba(37, 99, 235, 0.14);
-  outline: 1px dashed rgba(37, 99, 235, 0.75);
+.text-layer.edit-all-mode span,
+.text-layer.text-edit-mode span {
+  pointer-events: none;
+}
+.text-layer.edit-all-mode .edit-line {
+  display: block;
+  outline: 1px dashed rgba(59, 130, 246, 0.42);
+  background: rgba(59, 130, 246, 0.04);
+}
+.text-layer.text-edit-mode .edit-line {
+  display: block;
+}
+.text-layer.edit-all-mode .edit-line:hover,
+.text-layer.text-edit-mode .edit-line:hover {
+  background: rgba(37, 99, 235, 0.16);
+  outline: 1.5px solid #2563EB;
 }
 .text-layer span::selection {
   background: rgba(37, 99, 235, 0.30);
