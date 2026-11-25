@@ -2671,38 +2671,47 @@
     return true;
   }
 
-  async function deliverOutputBytes(bytes, fileName, forceSaveAs = false) {
+  async function deliverOutputBytes(bytes, fileName, forceSaveAs = false, prePickedHandle = null) {
     const safeName = ensurePdfExt(fileName);
+
+    // 1. Best path: write straight to the native File System Access handle picked on user click
+    if (prePickedHandle) {
+      el.btnConfirmSave.textContent = 'Εγγραφή αρχείου…';
+      const writable = await prePickedHandle.createWritable();
+      await writable.write(bytes);
+      await writable.close();
+      state.fileName = ensurePdfExt(prePickedHandle.name || safeName);
+      el.docFileName.textContent = state.fileName;
+      state.dirty = false;
+      return true;
+    }
+
+    // 2. Same-file in-place overwrite when opened directly from Windows Explorer (no dialog -> zero hang!)
     const nameChanged = safeName.toLowerCase() !== ensurePdfExt(state.fileName || '').toLowerCase();
-    if (DESKTOP_MODE && SESSION_TOKEN) {
-      const useSaveAs = forceSaveAs || !state.hasDiskPath || nameChanged;
-      el.btnConfirmSave.textContent = useSaveAs ? 'Επιλογή φακέλου…' : 'Αποθήκευση…';
-      const ep = useSaveAs
-        ? `/api/saveas?t=${encodeURIComponent(SESSION_TOKEN)}&name=${encodeURIComponent(safeName)}`
-        : `/api/save?t=${encodeURIComponent(SESSION_TOKEN)}`;
+    if (DESKTOP_MODE && SESSION_TOKEN && !forceSaveAs && state.hasDiskPath && !nameChanged) {
+      el.btnConfirmSave.textContent = 'Αποθήκευση…';
       try {
-        const resp = await fetch(ep, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: bytes });
-        if (resp.status === 204) return false;
-        if (!resp.ok) {
-          const msg = await resp.text();
-          if (msg === 'CANCELLED') return false;
-          throw new Error(msg || 'Save API error');
+        const resp = await fetch(`/api/save?t=${encodeURIComponent(SESSION_TOKEN)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/pdf' },
+          body: bytes
+        });
+        if (resp.ok) {
+          const savedName = resp.headers.get('X-Saved-Name');
+          if (savedName) {
+            state.fileName = decodeURIComponent(savedName);
+            el.docFileName.textContent = state.fileName;
+          }
+          state.dirty = false;
+          return true;
         }
-        const savedName = resp.headers.get('X-Saved-Name');
-        if (savedName) {
-          state.fileName = decodeURIComponent(savedName);
-          el.docFileName.textContent = state.fileName;
-          state.hasDiskPath = true;
-        }
-        state.dirty = false;
-        return true;
       } catch (netErr) {
-        // Bulletproof fallback: if local loopback bridge fails, download directly via browser so file is NEVER lost
-        console.warn('Desktop save fallback to browser download:', netErr);
-        return browserDownloadBytes(bytes, safeName);
+        console.warn('Desktop direct save fallback to browser download:', netErr);
       }
     }
 
+    // 3. Bulletproof fallback: instant native browser download (never blocks or hangs!)
+    el.btnConfirmSave.textContent = 'Λήψη αρχείου…';
     return browserDownloadBytes(bytes, safeName);
   }
 
@@ -2711,22 +2720,42 @@
     const origSize = state.pdfBytes.byteLength;
     const targetName = ensurePdfExt(el.inpSaveName.value || state.fileName);
     const embedNotes = !!el.chkEmbedNotes.checked;
+    const nameChanged = targetName.toLowerCase() !== ensurePdfExt(state.fileName || '').toLowerCase();
+    const needsPicker = forceSaveAs || !DESKTOP_MODE || !state.hasDiskPath || nameChanged;
+
+    // Acquire native Windows Save dialog handle IMMEDIATELY on click (while user gesture is active!)
+    // Opens directly owned by Edge/Chrome --app window -> NEVER hides behind window, NEVER hangs!
+    let pickedHandle = null;
+    if (needsPicker && typeof window.showSaveFilePicker === 'function') {
+      try {
+        pickedHandle = await window.showSaveFilePicker({
+          suggestedName: targetName,
+          types: [{ description: 'PDF Document', accept: { 'application/pdf': ['.pdf'] } }]
+        });
+      } catch (pickErr) {
+        if (pickErr && pickErr.name === 'AbortError') return; // User clicked Cancel cleanly
+        console.warn('showSaveFilePicker unavailable, will use direct download:', pickErr);
+        pickedHandle = null;
+      }
+    }
+
     const origLabel = el.btnConfirmSave.textContent;
     el.btnConfirmSave.disabled = true; el.btnSaveAsDesktop.disabled = true;
-    el.btnConfirmSave.textContent = 'Αποθήκευση…';
+    el.btnConfirmSave.textContent = 'Προετοιμασία…';
     try {
       const outBytes = state.saveMode === 'vector'
         ? await buildVectorPdfBytes({ embedNotes })
         : await buildCompressedPdfBytes(state.saveMode, embedNotes);
-      if (await deliverOutputBytes(outBytes, targetName, forceSaveAs)) {
+      const finalName = pickedHandle && pickedHandle.name ? ensurePdfExt(pickedHandle.name) : targetName;
+      if (await deliverOutputBytes(outBytes, finalName, forceSaveAs, pickedHandle)) {
         closeModal(el.modalSave);
         let msg;
         if (state.saveMode === 'vector') {
-          msg = `Αποθηκεύτηκε: ${targetName} (${formatBytes(outBytes.byteLength)})`;
+          msg = `Αποθηκεύτηκε: ${finalName} (${formatBytes(outBytes.byteLength)})`;
         } else {
           const diffPct = origSize > 0 ? Math.round((1 - outBytes.byteLength / origSize) * 100) : 0;
           const pctStr = diffPct > 0 ? ` · -${diffPct}%` : '';
-          msg = `Αποθηκεύτηκε: ${targetName} (${formatBytes(origSize)} → ${formatBytes(outBytes.byteLength)}${pctStr})`;
+          msg = `Αποθηκεύτηκε: ${finalName} (${formatBytes(origSize)} → ${formatBytes(outBytes.byteLength)}${pctStr})`;
         }
         showToast(msg, 4500); setStatus(msg);
       }
