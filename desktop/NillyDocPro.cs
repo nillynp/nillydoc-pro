@@ -11,6 +11,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -21,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("Nilly graphics (Sotiris Christos) — https://nillygraphics.com/")]
 [assembly: AssemblyProduct("NillyDoc Pro")]
 [assembly: AssemblyCopyright("Copyright (c) Nilly graphics (Sotiris Christos)")]
-[assembly: AssemblyVersion("1.4.0.0")]
-[assembly: AssemblyFileVersion("1.4.0.0")]
+[assembly: AssemblyVersion("1.4.1.0")]
+[assembly: AssemblyFileVersion("1.4.1.0")]
 
 namespace NillyDocPro
 {
@@ -223,6 +224,7 @@ namespace NillyDocPro
                     psi.Arguments = "--app=\"" + url + "\" --window-size=1280,860";
                     psi.UseShellExecute = false;
                     Process.Start(psi);
+                    StartTaskbarIconSync();
                     return;
                 }
                 catch { }
@@ -234,6 +236,79 @@ namespace NillyDocPro
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
             catch { }
+        }
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+        [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+        [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr CreateIconFromResourceEx(byte[] presbits, uint dwResSize, bool fIcon, uint dwVer, int cxDesired, int cyDesired, uint Flags);
+
+        private static IntPtr CreateHIconFromIcoBytes(byte[] icoData, int desiredSize)
+        {
+            if (icoData == null || icoData.Length < 22) return IntPtr.Zero;
+            int count = BitConverter.ToUInt16(icoData, 4);
+            if (count <= 0 || count > 32) return IntPtr.Zero;
+            int bestIdx = 0;
+            int bestDiff = int.MaxValue;
+            for (int i = 0; i < count; i++)
+            {
+                int off = 6 + i * 16;
+                if (off + 16 > icoData.Length) break;
+                int w = icoData[off];
+                if (w == 0) w = 256;
+                int diff = Math.Abs(w - desiredSize);
+                if (w >= desiredSize && diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+                else if (bestDiff == int.MaxValue && diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+            }
+            int eOff = 6 + bestIdx * 16;
+            int len = BitConverter.ToInt32(icoData, eOff + 8);
+            int imgOff = BitConverter.ToInt32(icoData, eOff + 12);
+            if (len <= 0 || imgOff < 0 || imgOff + len > icoData.Length) return IntPtr.Zero;
+            byte[] slice = new byte[len];
+            Buffer.BlockCopy(icoData, imgOff, slice, 0, len);
+            return CreateIconFromResourceEx(slice, (uint)len, true, 0x00030000, desiredSize, desiredSize, 0);
+        }
+
+        private static void StartTaskbarIconSync()
+        {
+            Thread t = new Thread(delegate()
+            {
+                try
+                {
+                    string icoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "NillyDocPro.ico");
+                    if (!File.Exists(icoPath)) icoPath = Path.Combine(_webRoot, "favicon.ico");
+                    if (!File.Exists(icoPath)) return;
+                    byte[] icoBytes = File.ReadAllBytes(icoPath);
+                    IntPtr hBig = CreateHIconFromIcoBytes(icoBytes, 48);
+                    IntPtr hSmall = CreateHIconFromIcoBytes(icoBytes, 16);
+                    if (hBig == IntPtr.Zero && hSmall == IntPtr.Zero) return;
+
+                    // Re-apply periodically during startup so Edge's favicon load never overrides the crisp unified amber icon
+                    for (int attempt = 0; attempt < 25 && _running; attempt++)
+                    {
+                        Thread.Sleep(attempt < 8 ? 250 : 600);
+                        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+                        {
+                            if (!IsWindowVisible(hWnd)) return true;
+                            StringBuilder sb = new StringBuilder(256);
+                            if (GetWindowText(hWnd, sb, sb.Capacity) <= 0) return true;
+                            string title = sb.ToString();
+                            if (title.IndexOf("NillyDoc Pro", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                IntPtr res;
+                                if (hBig != IntPtr.Zero) SendMessageTimeout(hWnd, 0x0080, (IntPtr)1, hBig, 0x0002, 200, out res);
+                                if (hSmall != IntPtr.Zero) SendMessageTimeout(hWnd, 0x0080, (IntPtr)0, hSmall, 0x0002, 200, out res);
+                            }
+                            return true;
+                        }, IntPtr.Zero);
+                    }
+                }
+                catch { }
+            });
+            t.IsBackground = true;
+            t.Start();
         }
 
         private static string FindChromiumBrowser()
