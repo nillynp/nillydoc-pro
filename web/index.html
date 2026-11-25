@@ -14,8 +14,8 @@
   <link rel="icon" type="image/svg+xml" href="./icon.svg?v=141" />
   <link rel="shortcut icon" href="./favicon.ico?v=141" />
   <link rel="apple-touch-icon" href="./icon-128.png?v=141" />
-  <link rel="manifest" href="./manifest.json?v=141" />
-  <link rel="stylesheet" href="./style.css" />
+  <link rel="manifest" href="./manifest.json?v=150" />
+  <link rel="stylesheet" href="./style.css?v=150" />
 </head>
 <body>
   <div id="app" class="app-shell">
@@ -338,9 +338,19 @@
             <span>100% καθαρό κείμενο + σχόλια/υπογραφές</span>
             <em class="est-tag">Άμεσο</em>
           </button>
+          <button class="size-card" data-mode="micro">
+            <strong>Micro (WhatsApp / Viber)</strong>
+            <span>Μέγιστη συμπίεση · ~72 DPI</span>
+            <em class="est-tag">Ελάχιστο</em>
+          </button>
+          <button class="size-card" data-mode="ultrasmall">
+            <strong>Ultra Small (Web)</strong>
+            <span>Πολύ μικρό · ~90 DPI</span>
+            <em class="est-tag">Πολύ ελαφρύ</em>
+          </button>
           <button class="size-card" data-mode="small">
             <strong>Small</strong>
-            <span>Email / Κινητό · ~110 DPI</span>
+            <span>Email / Κινητό · ~115 DPI</span>
             <em class="est-tag">Ελαφρύ</em>
           </button>
           <button class="size-card" data-mode="medium">
@@ -590,6 +600,10 @@
         <input id="inpMetaTitle" type="text" class="text-input" placeholder="π.χ. Προσφορά Λογοτύπου" />
         <label class="field-label" for="inpMetaAuthor">Δημιουργός (PDF Author)</label>
         <input id="inpMetaAuthor" type="text" class="text-input" value="Nilly graphics (Sotiris Christos)" />
+        <p style="margin:12px 0 0;font-size:11.5px;color:var(--text-muted);line-height:1.45;">
+          NillyDoc Pro v1.5 · 0 € MIT · 100% τοπική εκτέλεση (0 τηλεμετρία) ·
+          <a href="https://nillygraphics.com/terms-and-conditions/el/#free-software" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Όροι Χρήσης &amp; Άδεια MIT</a>
+        </p>
       </div>
       <div class="modal-foot">
         <button class="secondary-btn" data-close="modalDocInfo">Κλείσιμο</button>
@@ -604,6 +618,6 @@
   <!-- OFFLINE LOCAL PDF ENGINES (0 CDN dependencies!) -->
   <script src="./vendor/pdf.min.js"></script>
   <script src="./vendor/pdf-lib.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=150"></script>
 </body>
 </html>

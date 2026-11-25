@@ -22,8 +22,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("Nilly graphics (Sotiris Christos) — https://nillygraphics.com/")]
 [assembly: AssemblyProduct("NillyDoc Pro")]
 [assembly: AssemblyCopyright("Copyright (c) Nilly graphics (Sotiris Christos)")]
-[assembly: AssemblyVersion("1.4.1.0")]
-[assembly: AssemblyFileVersion("1.4.1.0")]
+[assembly: AssemblyVersion("1.5.0.0")]
+[assembly: AssemblyFileVersion("1.5.0.0")]
 
 namespace NillyDocPro
 {
@@ -37,6 +37,7 @@ namespace NillyDocPro
         private static volatile bool _running = true;
         private static volatile bool _sawClient = false;
         private static volatile bool _byeReceived = false;
+        private static int _activeBusyOps = 0;
         private static long _lastPingTicks = DateTime.UtcNow.Ticks;
         private static long _byeTicks = 0;
         private static long _startTicks = DateTime.UtcNow.Ticks;
@@ -148,10 +149,10 @@ namespace NillyDocPro
                     }
                 }
 
-                if (_sawClient)
+                if (_sawClient && Interlocked.CompareExchange(ref _activeBusyOps, 0, 0) == 0)
                 {
                     DateTime lastPing = new DateTime(Interlocked.Read(ref _lastPingTicks), DateTimeKind.Utc);
-                    if ((now - lastPing).TotalSeconds >= 10.0)
+                    if ((now - lastPing).TotalSeconds >= 25.0)
                     {
                         _running = false;
                         break;
@@ -241,9 +242,22 @@ namespace NillyDocPro
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
         [DllImport("user32.dll", CharSet = CharSet.Auto)] private static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
         [DllImport("user32.dll", SetLastError = true)] private static extern IntPtr CreateIconFromResourceEx(byte[] presbits, uint dwResSize, bool fIcon, uint dwVer, int cxDesired, int cyDesired, uint Flags);
+        [DllImport("kernel32.dll")] private static extern IntPtr GetCurrentProcess();
+        [DllImport("kernel32.dll")] private static extern bool SetProcessWorkingSetSize(IntPtr hProcess, IntPtr minSize, IntPtr maxSize);
+
+        private static void TrimMemory()
+        {
+            try
+            {
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Optimized, false);
+                SetProcessWorkingSetSize(GetCurrentProcess(), (IntPtr)(-1), (IntPtr)(-1));
+            }
+            catch { }
+        }
 
         private static IntPtr CreateHIconFromIcoBytes(byte[] icoData, int desiredSize)
         {
@@ -371,7 +385,7 @@ namespace NillyDocPro
 
                     if (req.Path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
                     {
-                        HandleApi(stream, req);
+                        HandleApi(client, stream, req);
                     }
                     else
                     {
@@ -522,7 +536,7 @@ namespace NillyDocPro
             return diff == 0;
         }
 
-        private static void HandleApi(NetworkStream stream, HttpRequest req)
+        private static void HandleApi(TcpClient client, NetworkStream stream, HttpRequest req)
         {
             if (!VerifyToken(req))
             {
@@ -530,11 +544,16 @@ namespace NillyDocPro
                 return;
             }
 
-            if (string.Equals(req.Path, "/api/heartbeat", StringComparison.OrdinalIgnoreCase))
+            // Every valid authenticated API call keeps the session alive
+            if (!string.Equals(req.Path, "/api/bye", StringComparison.OrdinalIgnoreCase))
             {
                 _sawClient = true;
                 _byeReceived = false;
                 Interlocked.Exchange(ref _lastPingTicks, DateTime.UtcNow.Ticks);
+            }
+
+            if (string.Equals(req.Path, "/api/heartbeat", StringComparison.OrdinalIgnoreCase))
+            {
                 SendResponse(stream, 204, "No Content", null, null, null);
                 return;
             }
@@ -570,9 +589,10 @@ namespace NillyDocPro
                 lock (_fileLock) { target = _currentFilePath; }
                 if (string.IsNullOrEmpty(target))
                 {
-                    HandleSaveAs(stream, req);
+                    HandleSaveAs(client, stream, req);
                     return;
                 }
+                Interlocked.Increment(ref _activeBusyOps);
                 try
                 {
                     AtomicWriteFile(target, req.Body);
@@ -584,80 +604,112 @@ namespace NillyDocPro
                 {
                     SendResponse(stream, 500, "Internal Server Error", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ex.Message), null);
                 }
+                finally
+                {
+                    Interlocked.Exchange(ref _lastPingTicks, DateTime.UtcNow.Ticks);
+                    Interlocked.Decrement(ref _activeBusyOps);
+                    TrimMemory();
+                }
                 return;
             }
 
             if (string.Equals(req.Path, "/api/saveas", StringComparison.OrdinalIgnoreCase) && req.Method == "POST")
             {
-                HandleSaveAs(stream, req);
+                HandleSaveAs(client, stream, req);
                 return;
             }
 
             SendResponse(stream, 404, "Not Found", "text/plain", Encoding.ASCII.GetBytes("Not found"), null);
         }
 
-        private static void HandleSaveAs(NetworkStream stream, HttpRequest req)
+        private static void HandleSaveAs(TcpClient client, NetworkStream stream, HttpRequest req)
         {
-            string suggested = "document.pdf";
-            string qName;
-            if (req.Query.TryGetValue("name", out qName) && !string.IsNullOrEmpty(qName))
-            {
-                suggested = Path.GetFileName(qName);
-            }
-
-            string chosenPath = null;
-            string initialDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            lock (_fileLock)
-            {
-                if (!string.IsNullOrEmpty(_currentFilePath))
-                {
-                    string d = Path.GetDirectoryName(_currentFilePath);
-                    if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) initialDir = d;
-                }
-            }
-
-            Thread sta = new Thread(delegate()
-            {
-                try
-                {
-                    using (SaveFileDialog dlg = new SaveFileDialog())
-                    {
-                        dlg.Title = "NillyDoc Pro — Αποθήκευση PDF";
-                        dlg.Filter = "PDF Document (*.pdf)|*.pdf";
-                        dlg.DefaultExt = "pdf";
-                        dlg.AddExtension = true;
-                        dlg.OverwritePrompt = true;
-                        dlg.InitialDirectory = initialDir;
-                        dlg.FileName = suggested;
-                        if (dlg.ShowDialog() == DialogResult.OK)
-                        {
-                            chosenPath = dlg.FileName;
-                        }
-                    }
-                }
-                catch { }
-            });
-            sta.SetApartmentState(ApartmentState.STA);
-            sta.Start();
-            sta.Join();
-
-            if (string.IsNullOrEmpty(chosenPath))
-            {
-                SendResponse(stream, 204, "No Content", "text/plain", Encoding.ASCII.GetBytes("CANCELLED"), null);
-                return;
-            }
-
+            Interlocked.Increment(ref _activeBusyOps);
             try
             {
-                AtomicWriteFile(chosenPath, req.Body);
-                lock (_fileLock) { _currentFilePath = chosenPath; }
-                Dictionary<string, string> extra = new Dictionary<string, string>();
-                extra["X-Saved-Name"] = Uri.EscapeDataString(Path.GetFileName(chosenPath));
-                SendResponse(stream, 200, "OK", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("SAVED"), extra);
+                try { client.SendTimeout = 0; client.ReceiveTimeout = 600000; } catch { }
+
+                string suggested = "document.pdf";
+                string qName;
+                if (req.Query.TryGetValue("name", out qName) && !string.IsNullOrEmpty(qName))
+                {
+                    suggested = Path.GetFileName(qName);
+                }
+
+                string chosenPath = null;
+                string initialDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                lock (_fileLock)
+                {
+                    if (!string.IsNullOrEmpty(_currentFilePath))
+                    {
+                        string d = Path.GetDirectoryName(_currentFilePath);
+                        if (!string.IsNullOrEmpty(d) && Directory.Exists(d)) initialDir = d;
+                    }
+                }
+
+                Thread sta = new Thread(delegate()
+                {
+                    try
+                    {
+                        using (Form owner = new Form())
+                        {
+                            owner.FormBorderStyle = FormBorderStyle.None;
+                            owner.ShowInTaskbar = false;
+                            owner.StartPosition = FormStartPosition.CenterScreen;
+                            owner.Size = new System.Drawing.Size(1, 1);
+                            owner.Opacity = 0.0;
+                            owner.TopMost = true;
+                            owner.Show();
+                            owner.Activate();
+                            try { SetForegroundWindow(owner.Handle); } catch { }
+
+                            using (SaveFileDialog dlg = new SaveFileDialog())
+                            {
+                                dlg.Title = "NillyDoc Pro — Αποθήκευση PDF";
+                                dlg.Filter = "PDF Document (*.pdf)|*.pdf";
+                                dlg.DefaultExt = "pdf";
+                                dlg.AddExtension = true;
+                                dlg.OverwritePrompt = true;
+                                dlg.InitialDirectory = initialDir;
+                                dlg.FileName = suggested;
+                                if (dlg.ShowDialog(owner) == DialogResult.OK)
+                                {
+                                    chosenPath = dlg.FileName;
+                                }
+                            }
+                            owner.Close();
+                        }
+                    }
+                    catch { }
+                });
+                sta.SetApartmentState(ApartmentState.STA);
+                sta.Start();
+                sta.Join();
+
+                if (string.IsNullOrEmpty(chosenPath))
+                {
+                    SendResponse(stream, 204, "No Content", "text/plain", Encoding.ASCII.GetBytes("CANCELLED"), null);
+                    return;
+                }
+
+                try
+                {
+                    AtomicWriteFile(chosenPath, req.Body);
+                    lock (_fileLock) { _currentFilePath = chosenPath; }
+                    Dictionary<string, string> extra = new Dictionary<string, string>();
+                    extra["X-Saved-Name"] = Uri.EscapeDataString(Path.GetFileName(chosenPath));
+                    SendResponse(stream, 200, "OK", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("SAVED"), extra);
+                }
+                catch (Exception ex)
+                {
+                    SendResponse(stream, 500, "Internal Server Error", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ex.Message), null);
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                SendResponse(stream, 500, "Internal Server Error", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ex.Message), null);
+                Interlocked.Exchange(ref _lastPingTicks, DateTime.UtcNow.Ticks);
+                Interlocked.Decrement(ref _activeBusyOps);
+                TrimMemory();
             }
         }
 
@@ -667,7 +719,15 @@ namespace NillyDocPro
             File.WriteAllBytes(tmp, data);
             if (File.Exists(targetPath))
             {
-                File.Replace(tmp, targetPath, null);
+                try
+                {
+                    File.Replace(tmp, targetPath, null);
+                }
+                catch
+                {
+                    File.Copy(tmp, targetPath, true);
+                    try { File.Delete(tmp); } catch { }
+                }
             }
             else
             {

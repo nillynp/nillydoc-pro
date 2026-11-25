@@ -2610,19 +2610,32 @@
 
   async function buildCompressedPdfBytes(mode, embedNotes) {
     commitInlineEditor(true);
-    const cfg = { small: { dpi: 110, quality: 0.72 }, medium: { dpi: 150, quality: 0.82 }, large: { dpi: 240, quality: 0.90 } }[mode] || { dpi: 150, quality: 0.82 };
+    const presets = {
+      micro:      { dpi: 72,  quality: 0.46 },
+      ultrasmall: { dpi: 90,  quality: 0.58 },
+      small:      { dpi: 115, quality: 0.70 },
+      medium:     { dpi: 150, quality: 0.82 },
+      large:      { dpi: 240, quality: 0.90 }
+    };
+    const cfg = presets[mode] || presets.medium;
     const scale = cfg.dpi / 72;
     const outDoc = await window.PDFLib.PDFDocument.create();
     stampPdfMetadata(outDoc);
 
     for (let p = 1; p <= state.pageCount; p++) {
       el.btnConfirmSave.textContent = `Συμπίεση ${p}/${state.pageCount}…`;
+      // Yield to browser UI & heartbeat between pages so large catalogs never freeze
+      await new Promise((r) => setTimeout(r, 0));
+
       const page = await state.pdfDoc.getPage(p);
-      const vp1 = page.getViewport({ scale: 1 }), vp = page.getViewport({ scale });
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale });
       const cv = document.createElement('canvas');
-      cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+      cv.width = Math.max(1, Math.round(vp.width));
+      cv.height = Math.max(1, Math.round(vp.height));
       const ctx = cv.getContext('2d', { alpha: false });
-      ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, cv.width, cv.height);
       await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
       const list = state.annotations[p - 1] || [];
@@ -2632,40 +2645,65 @@
         });
       }
       const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', cfg.quality));
+      // Immediately release canvas RAM to keep multi-page catalogs ultra-light
+      cv.width = 0; cv.height = 0;
+      try { if (typeof page.cleanup === 'function') page.cleanup(); } catch (_) {}
+      if (!blob) throw new Error('Αποτυχία συμπίεσης σελίδας ' + p);
+
       const img = await outDoc.embedJpg(new Uint8Array(await blob.arrayBuffer()));
       outDoc.addPage([vp1.width, vp1.height]).drawImage(img, { x: 0, y: 0, width: vp1.width, height: vp1.height });
     }
+    el.btnConfirmSave.textContent = 'Δημιουργία PDF…';
+    await new Promise((r) => setTimeout(r, 0));
     return await outDoc.save();
+  }
+
+  function browserDownloadBytes(bytes, safeName) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    state.dirty = false;
+    return true;
   }
 
   async function deliverOutputBytes(bytes, fileName, forceSaveAs = false) {
     const safeName = ensurePdfExt(fileName);
+    const nameChanged = safeName.toLowerCase() !== ensurePdfExt(state.fileName || '').toLowerCase();
     if (DESKTOP_MODE && SESSION_TOKEN) {
-      const ep = (!forceSaveAs && state.hasDiskPath)
-        ? `/api/save?t=${encodeURIComponent(SESSION_TOKEN)}`
-        : `/api/saveas?t=${encodeURIComponent(SESSION_TOKEN)}&name=${encodeURIComponent(safeName)}`;
-      const resp = await fetch(ep, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: bytes });
-      if (!resp.ok) {
-        const msg = await resp.text();
-        if (resp.status === 204 || msg === 'CANCELLED') return false;
-        throw new Error(msg || 'Save API error');
+      const useSaveAs = forceSaveAs || !state.hasDiskPath || nameChanged;
+      el.btnConfirmSave.textContent = useSaveAs ? 'Επιλογή φακέλου…' : 'Αποθήκευση…';
+      const ep = useSaveAs
+        ? `/api/saveas?t=${encodeURIComponent(SESSION_TOKEN)}&name=${encodeURIComponent(safeName)}`
+        : `/api/save?t=${encodeURIComponent(SESSION_TOKEN)}`;
+      try {
+        const resp = await fetch(ep, { method: 'POST', headers: { 'Content-Type': 'application/pdf' }, body: bytes });
+        if (resp.status === 204) return false;
+        if (!resp.ok) {
+          const msg = await resp.text();
+          if (msg === 'CANCELLED') return false;
+          throw new Error(msg || 'Save API error');
+        }
+        const savedName = resp.headers.get('X-Saved-Name');
+        if (savedName) {
+          state.fileName = decodeURIComponent(savedName);
+          el.docFileName.textContent = state.fileName;
+          state.hasDiskPath = true;
+        }
+        state.dirty = false;
+        return true;
+      } catch (netErr) {
+        // Bulletproof fallback: if local loopback bridge fails, download directly via browser so file is NEVER lost
+        console.warn('Desktop save fallback to browser download:', netErr);
+        return browserDownloadBytes(bytes, safeName);
       }
-      const savedName = resp.headers.get('X-Saved-Name');
-      if (savedName) {
-        state.fileName = decodeURIComponent(savedName);
-        el.docFileName.textContent = state.fileName;
-        state.hasDiskPath = true;
-      }
-      state.dirty = false;
-      return true;
     }
 
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
-    const a = document.createElement('a'); a.href = url; a.download = safeName;
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-    state.dirty = false;
-    return true;
+    return browserDownloadBytes(bytes, safeName);
   }
 
   async function executeSave(forceSaveAs = false) {
@@ -2682,14 +2720,19 @@
         : await buildCompressedPdfBytes(state.saveMode, embedNotes);
       if (await deliverOutputBytes(outBytes, targetName, forceSaveAs)) {
         closeModal(el.modalSave);
-        const msg = state.saveMode === 'vector'
-          ? `Αποθηκεύτηκε: ${targetName} (${formatBytes(outBytes.byteLength)})`
-          : `Αποθηκεύτηκε: ${targetName} (${formatBytes(origSize)} → ${formatBytes(outBytes.byteLength)})`;
-        showToast(msg, 3600); setStatus(msg);
+        let msg;
+        if (state.saveMode === 'vector') {
+          msg = `Αποθηκεύτηκε: ${targetName} (${formatBytes(outBytes.byteLength)})`;
+        } else {
+          const diffPct = origSize > 0 ? Math.round((1 - outBytes.byteLength / origSize) * 100) : 0;
+          const pctStr = diffPct > 0 ? ` · -${diffPct}%` : '';
+          msg = `Αποθηκεύτηκε: ${targetName} (${formatBytes(origSize)} → ${formatBytes(outBytes.byteLength)}${pctStr})`;
+        }
+        showToast(msg, 4500); setStatus(msg);
       }
     } catch (err) {
       console.error('Save error:', err);
-      showToast('Σφάλμα κατά την αποθήκευση PDF.');
+      showToast('Σφάλμα κατά την αποθήκευση PDF: ' + (err && err.message ? err.message : ''), 4500);
     } finally {
       el.btnConfirmSave.disabled = false; el.btnSaveAsDesktop.disabled = false;
       el.btnConfirmSave.textContent = origLabel;
